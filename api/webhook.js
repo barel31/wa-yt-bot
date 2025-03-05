@@ -9,8 +9,8 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
-const ytDlpExecutable = path.join(__dirname, 'tmp', 'yt-dlp');
-const ffmpegLocation = path.join(__dirname, 'tmp', 'ffmpeg');
+const ytDlpExecutable = path.join(__dirname, 'tmp', 'yt-dlp_linux');
+const ffmpegLocation = path.join(__dirname, 'tmp', 'ffmpeg_linux');
 
 module.exports = async (req, res) => {
   try {
