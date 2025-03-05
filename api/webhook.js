@@ -1,15 +1,13 @@
 const twilio = require('twilio');
-const path = require('path');
 const qs = require('querystring');
-const { processDownload } = require('./download'); // Import the Node.js download function
+const { processDownload } = require('./download');
 
-// Twilio credentials
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
 
-// Simple YouTube link validation
+// Validate that the message contains a YouTube URL.
 function isYouTubeLink(url) {
   return url && (url.includes('youtube.com') || url.includes('youtu.be'));
 }
@@ -49,11 +47,10 @@ const handler = async (req, res) => {
       }
 
       const videoUrl = message;
-      // Download the audio and convert to MP3 using the Node.js solution
       const publicUrl = await processDownload(videoUrl);
       console.log('Public URL generated:', publicUrl);
 
-      // Send audio file via WhatsApp
+      // Send the public URL via WhatsApp.
       await client.messages.create({
         from: twilioWhatsAppNumber,
         to: from,
