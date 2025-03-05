@@ -2,7 +2,6 @@ const twilio = require('twilio');
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
 const qs = require('querystring'); // Required to parse URL-encoded form data
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -10,53 +9,13 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
+const ytDlpExecutable = path.join(__dirname, 'bin', 'yt-dlp');
+const ffmpegLocation = path.join(__dirname, 'bin', 'ffmpeg');
 
-const downloadBinary = (url, destinationPath) => {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destinationPath);
-
-    https.get(url, (response) => {
-      // Check if the response is not an HTML error page
-      if (response.headers['content-type'] && response.headers['content-type'].includes('text/html')) {
-        reject(new Error('Expected a binary file, but received an HTML page.'));
-        return;
-      }
-
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close(resolve);
-      });
-    }).on('error', (err) => {
-      reject(err);
-    });
-  });
-};
-
-
-// Function to download yt-dlp and ffmpeg to /tmp at runtime
-const downloadBinaries = async () => {
-  const ytDlpPath = '/tmp/yt-dlp';
-  const ffmpegPath = '/tmp/ffmpeg';
-
-  const ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/2025.02.19/yt-dlp_linux';
-  const ffmpegUrl = 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-i686-static.tar.xz'; 
-
-  await downloadBinary(ytDlpUrl, ytDlpPath);
-  await downloadBinary(ffmpegUrl, ffmpegPath);
-
-  // Make sure to set executable permissions for the binaries
-  fs.chmodSync(ytDlpPath, '755');
-  fs.chmodSync(ffmpegPath, '755');
-
-  console.log('Binaries downloaded and permissions set');
-};
-
-// Main function for handling the webhook
 module.exports = async (req, res) => {
   try {
-    await downloadBinaries(); // Download binaries when the webhook is triggered
-
     let incomingMessage = '';
+
     req.on('data', chunk => {
       incomingMessage += chunk;
     });
@@ -155,10 +114,7 @@ function isYouTubeLink(url) {
 function downloadAudio(videoUrl, outputPath) {
   return new Promise((resolve, reject) => {
     // Use the module paths for yt-dlp and ffmpeg
-    const ytDlpPath = '/tmp/yt-dlp';  // Updated path for runtime download
-    const ffmpegPath = '/tmp/ffmpeg'; // Updated path for runtime download
-
-    const command = `"${ytDlpPath}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegPath}"`;
+    const command = `"${ytDlpExecutable}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegLocation}"`;
 
     console.log('Executing command:', command); // Log the command
 
