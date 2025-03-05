@@ -3,6 +3,8 @@ const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const qs = require('querystring'); // Required to parse URL-encoded form data
+const ytDlpExecutable = require('yt-dlp'); // This is the module imported from npm
+const ffmpegLocation = require('ffmpeg-static'); // This provides the ffmpeg path
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -10,12 +12,12 @@ const client = twilio(accountSid, authToken);
 
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
 const ytDlpExecutable = '/opt/bin/yt-dlp'; // Path to yt-dlp
-const ffmpegLocation = '/opt/bin/ffmpeg';  // Path to ffmpeg
+const ffmpegLocation = '/opt/bin/ffmpeg'; // Path to ffmpeg
 
 module.exports = async (req, res) => {
   try {
     let incomingMessage = '';
-    
+
     req.on('data', chunk => {
       incomingMessage += chunk;
     });
@@ -23,13 +25,13 @@ module.exports = async (req, res) => {
     req.on('end', async () => {
       // Log the raw incoming data for debugging
       console.log('Raw incoming data:', incomingMessage);
-      
+
       // Now parse the data using querystring (for x-www-form-urlencoded)
       const parsedData = qs.parse(incomingMessage);
-      console.log('Parsed data:', parsedData);  // Log parsed data to see if Body exists
+      console.log('Parsed data:', parsedData); // Log parsed data to see if Body exists
 
-      const message = parsedData.Body;  // This is the actual text sent by Twilio
-      const from = parsedData.From;     // The sender's phone number
+      const message = parsedData.Body; // This is the actual text sent by Twilio
+      const from = parsedData.From; // The sender's phone number
 
       if (!message) {
         console.log('No message received or Body is undefined.');
@@ -113,7 +115,7 @@ function isYouTubeLink(url) {
 // Function to download audio using yt-dlp
 function downloadAudio(videoUrl, outputPath) {
   return new Promise((resolve, reject) => {
-    // Build the command to download the video and extract audio
+    // Use the module paths for yt-dlp and ffmpeg
     const command = `"${ytDlpExecutable}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegLocation}"`;
 
     console.log('Executing command:', command); // Log the command
