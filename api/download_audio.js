@@ -18,7 +18,17 @@ ffmpeg.setFfmpegPath(ffmpegPath);
  */
 async function downloadAudio(videoUrl, outputPath) {
   console.log(`Downloading audio stream from: ${videoUrl}`);
-  const audioStream = ytdl(videoUrl, { quality: 'highestaudio' });
+  
+  // Use filter: 'audioonly' and add a custom User-Agent to try to avoid a 410 error.
+  const audioStream = ytdl(videoUrl, {
+    quality: 'highestaudio',
+    filter: 'audioonly',
+    requestOptions: {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+      }
+    }
+  });
   
   return new Promise((resolve, reject) => {
     ffmpeg(audioStream)
