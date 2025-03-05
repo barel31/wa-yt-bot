@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 
 let ffmpeg;      // Will hold the ffmpeg instance.
-let fetchFile;   // (Optional) fetchFile helper.
 let ffmpegLoaded = false;
 
 /**
@@ -11,21 +10,15 @@ let ffmpegLoaded = false;
  */
 async function loadFFmpegModule() {
   if (!ffmpegLoaded) {
-    // Dynamically import the module.
     const moduleExports = await import('@ffmpeg/ffmpeg');
-    // Attempt to get createFFmpeg and fetchFile from either the default export or the named exports.
-    const createFFmpeg =
-      (moduleExports.default && moduleExports.default.createFFmpeg) ||
-      moduleExports.createFFmpeg;
-    const _fetchFile =
-      (moduleExports.default && moduleExports.default.fetchFile) ||
-      moduleExports.fetchFile;
-    if (typeof createFFmpeg !== 'function') {
+    // Extract the FFmpeg class from the module.
+    const FFmpeg = moduleExports.default ? moduleExports.default.FFmpeg : moduleExports.FFmpeg;
+    if (typeof FFmpeg !== 'function') {
       console.error("Module exports:", moduleExports);
-      throw new Error('createFFmpeg is not a function in the imported module.');
+      throw new Error('FFmpeg is not a function in the imported module.');
     }
-    ffmpeg = createFFmpeg({ log: true });
-    fetchFile = _fetchFile;
+    // Create an instance using the FFmpeg class.
+    ffmpeg = new FFmpeg({ log: true });
     console.log('Loading ffmpeg.wasm...');
     await ffmpeg.load();
     ffmpegLoaded = true;
