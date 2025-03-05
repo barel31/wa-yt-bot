@@ -3,7 +3,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 const fs = require('fs');
 
-const ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg');
+const ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg-linux');
 console.log("Using bundled ffmpeg at:", ffmpegPath);
 
 if (!fs.existsSync(ffmpegPath)) {
