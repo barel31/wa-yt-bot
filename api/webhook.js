@@ -3,16 +3,14 @@ const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const qs = require('querystring'); // Required to parse URL-encoded form data
-const ytDlpExecutable = require('yt-dlp'); // This is the module imported from npm
-const ffmpegLocation = require('ffmpeg-static'); // This provides the ffmpeg path
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
-const ytDlpExecutable = '/opt/bin/yt-dlp'; // Path to yt-dlp
-const ffmpegLocation = '/opt/bin/ffmpeg'; // Path to ffmpeg
+const ytDlpExecutable = path.join(__dirname, 'bin', 'yt-dlp');
+const ffmpegLocation = path.join(__dirname, 'bin', 'ffmpeg');
 
 module.exports = async (req, res) => {
   try {
