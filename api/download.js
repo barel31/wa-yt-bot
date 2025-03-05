@@ -1,12 +1,13 @@
 const { execFile } = require('child_process');
 const path = require('path');
-const fs = require('fs').promises; // for async file operations
+const fs = require('fs').promises; // using promises for async file operations
+const fsSync = require('fs'); // for creating file stream when needed
+
 const TMP_PATH = '/tmp'; // Vercel's temporary storage location
+const ytDlpExecutable = '/opt/bin/yt-dlp'; // Ensure this binary exists and is executable
+const ffmpegLocation = '/opt/bin/ffmpeg';   // Ensure this binary exists and is executable
 
-const ytDlpExecutable = '/opt/bin/yt-dlp'; // Path to yt-dlp in Vercel
-const ffmpegLocation = '/opt/bin/ffmpeg'; // Path to ffmpeg
-
-// Simple validation to check if the URL looks like a YouTube link
+// Simple YouTube link validation
 function isYouTubeLink(url) {
   return url && (url.includes('youtube.com') || url.includes('youtu.be'));
 }
@@ -19,16 +20,20 @@ async function downloadAudio(videoUrl) {
   const outputFilename = 'audio.mp3';
   const outputPath = path.join(TMP_PATH, outputFilename);
 
-  // Remove existing file if it exists
+  // Remove any pre-existing file to avoid conflicts
   try {
     await fs.access(outputPath);
+    console.log(`File ${outputPath} exists. Deleting...`);
     await fs.unlink(outputPath);
+    console.log('Old file deleted.');
   } catch (err) {
-    // File does not exist; no need to remove
+    console.log('No existing file found, continuing.');
   }
 
+  console.log(`Starting download for URL: ${videoUrl}`);
+  
   return new Promise((resolve, reject) => {
-    // Build arguments array for execFile
+    // Build argument list for execFile
     const args = [
       videoUrl,
       '--extract-audio',
@@ -36,20 +41,23 @@ async function downloadAudio(videoUrl) {
       '--output', outputPath,
       '--ffmpeg-location', ffmpegLocation
     ];
-
+    
+    console.log('Executing command:', ytDlpExecutable, args.join(' '));
+    
     execFile(ytDlpExecutable, args, (error, stdout, stderr) => {
+      console.log('execFile callback invoked');
       if (error) {
         console.error('execFile error:', error);
         return reject(error);
       }
-      // Note: Some libraries may output non-critical info to stderr.
-      if (stderr) {
+      if (stderr && stderr.trim().length > 0) {
         console.error('yt-dlp stderr:', stderr);
-        // Optionally, decide whether to reject on stderr output.
+        // Depending on your use case, you may choose to treat stderr as non-fatal if stdout is correct.
+        // return reject(new Error(stderr));
       }
       console.log('yt-dlp stdout:', stdout);
-      // Return the public URL for serveAudio endpoint.
       const audioUrl = `https://${process.env.VERCEL_URL}/api/serveAudio?filename=${outputFilename}`;
+      console.log('Resolved audio URL:', audioUrl);
       resolve(audioUrl);
     });
   });
