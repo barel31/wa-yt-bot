@@ -1,11 +1,13 @@
 const { execFile } = require('child_process');
 const path = require('path');
-const fs = require('fs').promises; // using promises for async file operations
+const fs = require('fs').promises; // for async file operations
 const fsSync = require('fs'); // for creating file stream when needed
 
 const TMP_PATH = '/tmp'; // Vercel's temporary storage location
-const ytDlpExecutable = '/opt/bin/yt-dlp'; // Ensure this binary exists and is executable
-const ffmpegLocation = '/opt/bin/ffmpeg';   // Ensure this binary exists and is executable
+
+// Update paths to use ../bin directory relative to the current file
+const ytDlpExecutable = path.join(__dirname, '..', 'bin', 'yt-dlp-linux');
+const ffmpegLocation = path.join(__dirname, '..', 'bin', 'ffmpeg-linux');
 
 // Simple YouTube link validation
 function isYouTubeLink(url) {
@@ -52,10 +54,10 @@ async function downloadAudio(videoUrl) {
       }
       if (stderr && stderr.trim().length > 0) {
         console.error('yt-dlp stderr:', stderr);
-        // Depending on your use case, you may choose to treat stderr as non-fatal if stdout is correct.
-        // return reject(new Error(stderr));
+        // Optionally, decide whether to reject on stderr output.
       }
       console.log('yt-dlp stdout:', stdout);
+      // Return the public URL for serveAudio endpoint.
       const audioUrl = `https://${process.env.VERCEL_URL}/api/serveAudio?filename=${outputFilename}`;
       console.log('Resolved audio URL:', audioUrl);
       resolve(audioUrl);
