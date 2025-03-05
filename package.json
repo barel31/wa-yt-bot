@@ -7,8 +7,8 @@
   },
   "dependencies": {
     "child_process": "^1.0.2",
-    "express": "^4.17.1",
     "ngrok": "^4.1.0",
-    "twilio": "^3.59.0"
+    "twilio": "^3.59.0",
+    "vercel": "^41.3.1"
   }
 }
