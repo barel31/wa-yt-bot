@@ -10,21 +10,32 @@ const client = twilio(accountSid, authToken);
 
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
 const ytDlpExecutable = '/opt/bin/yt-dlp'; // Path to yt-dlp
-const ffmpegLocation = '/opt/bin/ffmpeg'; // Path to ffmpeg
+const ffmpegLocation = '/opt/bin/ffmpeg';  // Path to ffmpeg
 
 module.exports = async (req, res) => {
   try {
-    // Handle parsing the incoming data
     let incomingMessage = '';
+    
     req.on('data', chunk => {
       incomingMessage += chunk;
     });
 
     req.on('end', async () => {
+      // Log the raw incoming data for debugging
+      console.log('Raw incoming data:', incomingMessage);
+      
       // Now parse the data using querystring (for x-www-form-urlencoded)
       const parsedData = qs.parse(incomingMessage);
-      const message = parsedData.Body; // This is the actual text sent by Twilio
-      const from = parsedData.From; // The sender's phone number
+      console.log('Parsed data:', parsedData);  // Log parsed data to see if Body exists
+
+      const message = parsedData.Body;  // This is the actual text sent by Twilio
+      const from = parsedData.From;     // The sender's phone number
+
+      if (!message) {
+        console.log('No message received or Body is undefined.');
+        res.status(400).send('No message received');
+        return;
+      }
 
       // Log incoming message and sender information
       console.log('Incoming message:', message);
@@ -95,7 +106,8 @@ module.exports = async (req, res) => {
 
 // Function to check if the message contains a YouTube link
 function isYouTubeLink(url) {
-  return url.includes('youtube.com') || url.includes('youtu.be');
+  console.log('Checking if URL is a YouTube link:', url);
+  return url && (url.includes('youtube.com') || url.includes('youtu.be'));
 }
 
 // Function to download audio using yt-dlp
