@@ -1,9 +1,9 @@
 const ytdl = require('ytdl-core');
 const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');  // Automatically provides the correct binary path
 const path = require('path');
 
-// Use the bundled ffmpeg from your ../bin folder
-const ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg');
+// Set ffmpeg path using ffmpeg-static
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 /**
