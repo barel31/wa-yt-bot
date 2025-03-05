@@ -38,7 +38,7 @@ const downloadBinaries = async () => {
   const ytDlpPath = '/tmp/yt-dlp';
   const ffmpegPath = '/tmp/ffmpeg';
 
-  const ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/2025.03.05/yt-dlp-linux';
+  const ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/2025.02.19/yt-dlp_linux';
   const ffmpegUrl = 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-i686-static.tar.xz'; 
 
   await downloadBinary(ytDlpUrl, ytDlpPath);
