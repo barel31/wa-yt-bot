@@ -17,7 +17,7 @@ let ytDlpPath, ffmpegPath;
 
 if (isVercel) {
   // Use Linux binaries when running on Vercel
-  ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp-linux2');
+  ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp_linux_aarch64');
   ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg-linux');
 } else {
   // Use Windows binaries when developing locally
