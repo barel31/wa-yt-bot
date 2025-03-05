@@ -5,17 +5,12 @@ const fs = require('fs');
 const ytDlpExecutable = '/opt/bin/yt-dlp'; // Path to yt-dlp in Vercel
 const ffmpegLocation = '/opt/bin/ffmpeg'; // Path to ffmpeg
 
-const PUBLIC_PATH = path.join(__dirname, '../public');
+const TMP_PATH = '/tmp'; // Vercel's temporary storage location
 
 async function downloadAudio(videoUrl) {
   return new Promise((resolve, reject) => {
     const outputFilename = 'audio.mp3';
-    const outputPath = path.join(PUBLIC_PATH, outputFilename);
-
-    // Ensure public directory exists
-    if (!fs.existsSync(PUBLIC_PATH)) {
-      fs.mkdirSync(PUBLIC_PATH, { recursive: true });
-    }
+    const outputPath = path.join(TMP_PATH, outputFilename);
 
     const command = `"${ytDlpExecutable}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegLocation}"`;
 
@@ -31,7 +26,7 @@ async function downloadAudio(videoUrl) {
       console.log(`stdout: ${stdout}`);
 
       // Return the public URL of the file
-      const audioUrl = `https://${process.env.VERCEL_URL}/public/${outputFilename}`;
+      const audioUrl = `https://${process.env.VERCEL_URL}/api/serveAudio?filename=${outputFilename}`;
       resolve(audioUrl);
     });
   });
