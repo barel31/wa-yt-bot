@@ -2,8 +2,8 @@ const ytdl = require('ytdl-core');
 const fs = require('fs');
 const path = require('path');
 
-let ffmpeg;      // Will hold the createFFmpeg function's instance.
-let fetchFile;   // (Optional) if you need fetchFile.
+let ffmpeg;      // Will hold the ffmpeg instance.
+let fetchFile;   // Will hold the fetchFile helper (if needed).
 let ffmpegLoaded = false;
 
 /**
@@ -12,8 +12,13 @@ let ffmpegLoaded = false;
 async function loadFFmpegModule() {
   if (!ffmpegLoaded) {
     const ffmpegModule = await import('@ffmpeg/ffmpeg');
-    ffmpeg = ffmpegModule.createFFmpeg({ log: true });
-    fetchFile = ffmpegModule.fetchFile; // In case you need it.
+    // Handle both ESM default export and named exports
+    const { createFFmpeg, fetchFile: _fetchFile } = ffmpegModule.default || ffmpegModule;
+    if (typeof createFFmpeg !== 'function') {
+      throw new Error('createFFmpeg is not a function in the imported module.');
+    }
+    ffmpeg = createFFmpeg({ log: true });
+    fetchFile = _fetchFile;
     console.log('Loading ffmpeg.wasm...');
     await ffmpeg.load();
     ffmpegLoaded = true;

@@ -23,3 +23,4 @@ module.exports = (req, res) => {
     res.sendFile(filePath);
   });
 };
+  
