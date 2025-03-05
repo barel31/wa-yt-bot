@@ -14,6 +14,8 @@ const ytDlpExecutable = '/opt/bin/yt-dlp';  // Path to yt-dlp
 const ffmpegLocation = '/opt/bin/ffmpeg';   // Path to ffmpeg
 
 module.exports = async (req, res) => {
+  console.log('Webhook function was triggered');
+  
   const incomingMessage = req.body.Body;
   const from = req.body.From;
 
