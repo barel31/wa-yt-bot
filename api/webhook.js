@@ -14,14 +14,24 @@ const twilioWhatsAppNumber = 'whatsapp:+14155238886';
 const downloadBinary = (url, destinationPath) => {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destinationPath);
+
     https.get(url, (response) => {
+      // Check if the response is not an HTML error page
+      if (response.headers['content-type'] && response.headers['content-type'].includes('text/html')) {
+        reject(new Error('Expected a binary file, but received an HTML page.'));
+        return;
+      }
+
       response.pipe(file);
       file.on('finish', () => {
         file.close(resolve);
       });
-    }).on('error', reject);
+    }).on('error', (err) => {
+      reject(err);
+    });
   });
 };
+
 
 // Function to download yt-dlp and ffmpeg to /tmp at runtime
 const downloadBinaries = async () => {
