@@ -2,34 +2,49 @@ const twilio = require('twilio');
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const qs = require('querystring'); // Required to parse URL-encoded form data
+const qs = require('querystring'); // To parse x-www-form-urlencoded data
 
+// Twilio credentials
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
-const ytDlpExecutable = path.join(__dirname, 'tmp', 'yt-dlp_linux');
-const ffmpegLocation = path.join(__dirname, 'tmp', 'ffmpeg_linux');
+
+// Determine if running on Vercel (Linux) or locally (Windows)
+const isVercel = !!process.env.VERCEL_URL;
+let ytDlpPath, ffmpegPath;
+
+if (isVercel) {
+  // Use Linux binaries when running on Vercel
+  ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp-linux');
+  ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg-linux');
+} else {
+  // Use Windows binaries when developing locally
+  ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp-win.exe');
+  ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg-win.exe');
+}
+
+console.log("Using yt-dlp binary:", ytDlpPath);
+console.log("Using ffmpeg binary:", ffmpegPath);
 
 module.exports = async (req, res) => {
   try {
-    let incomingMessage = '';
-
+    let incomingData = '';
     req.on('data', chunk => {
-      incomingMessage += chunk;
+      incomingData += chunk;
     });
 
     req.on('end', async () => {
-      // Log the raw incoming data for debugging
-      console.log('Raw incoming data:', incomingMessage);
+      // Log the raw incoming data
+      console.log('Raw incoming data:', incomingData);
 
-      // Now parse the data using querystring (for x-www-form-urlencoded)
-      const parsedData = qs.parse(incomingMessage);
-      console.log('Parsed data:', parsedData); // Log parsed data to see if Body exists
+      // Parse the incoming data (Twilio sends data as x-www-form-urlencoded)
+      const parsedData = qs.parse(incomingData);
+      console.log('Parsed data:', parsedData);
 
-      const message = parsedData.Body; // This is the actual text sent by Twilio
-      const from = parsedData.From; // The sender's phone number
+      const message = parsedData.Body; // Text sent by Twilio
+      const from = parsedData.From;    // Sender's phone number
 
       if (!message) {
         console.log('No message received or Body is undefined.');
@@ -37,37 +52,35 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // Log incoming message and sender information
       console.log('Incoming message:', message);
       console.log('From:', from);
 
       if (isYouTubeLink(message)) {
         const videoUrl = message;
         const outputFilename = 'audio.mp3';
-        const tempDir = '/tmp'; // Temporary directory for Vercel (use /tmp on serverless environments)
+        const tempDir = '/tmp'; // Use /tmp for temporary files in serverless environments
         const outputPath = path.join(tempDir, outputFilename);
 
-        // Log video URL and output path
         console.log('Video URL:', videoUrl);
         console.log('Output path:', outputPath);
 
         try {
-          // Check if file exists and delete if necessary
+          // Delete existing file if it exists
           if (fs.existsSync(outputPath)) {
             console.log('Deleting existing file:', outputPath);
             fs.unlinkSync(outputPath);
           }
 
-          // Download the audio
+          // Download the audio using yt-dlp
           await downloadAudio(videoUrl, outputPath);
 
-          // Construct the public URL (Vercel-specific URL structure)
+          // Construct a public URL for the audio file.
+          // Note: /tmp is not publicly accessible in Vercel by default.
+          // In a production app, you might need to move the file to cloud storage.
           const publicUrl = `https://${process.env.VERCEL_URL}/tmp/${outputFilename}`;
-
-          // Log the public URL
           console.log('Public URL:', publicUrl);
 
-          // Send the audio file back to the user
+          // Send the audio file back via Twilio WhatsApp
           await client.messages.create({
             from: twilioWhatsAppNumber,
             to: from,
@@ -76,25 +89,21 @@ module.exports = async (req, res) => {
 
           res.status(200).send('Message sent');
         } catch (error) {
-          // Log the error and send error response to user
           console.error('Error during processing:', error);
           await client.messages.create({
             from: twilioWhatsAppNumber,
             to: from,
             body: 'Sorry, there was an error processing your request.',
           });
-
           res.status(500).send('Error');
         }
       } else {
-        // If the link is not a YouTube link, send a response asking for a valid link
         console.log('Invalid link received:', message);
         await client.messages.create({
           from: twilioWhatsAppNumber,
           to: from,
           body: 'Please send a valid YouTube link.',
         });
-
         res.status(200).send('Invalid link');
       }
     });
@@ -104,30 +113,24 @@ module.exports = async (req, res) => {
   }
 };
 
-// Function to check if the message contains a YouTube link
 function isYouTubeLink(url) {
   console.log('Checking if URL is a YouTube link:', url);
   return url && (url.includes('youtube.com') || url.includes('youtu.be'));
 }
 
-// Function to download audio using yt-dlp
 function downloadAudio(videoUrl, outputPath) {
   return new Promise((resolve, reject) => {
-    // Use the module paths for yt-dlp and ffmpeg
-    const command = `"${ytDlpExecutable}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegLocation}"`;
-
-    console.log('Executing command:', command); // Log the command
+    const command = `"${ytDlpPath}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegPath}"`;
+    console.log('Executing command:', command);
 
     exec(command, (error, stdout, stderr) => {
       if (error) {
         console.error(`exec error: ${error}`);
-        reject(error);
-        return;
+        return reject(error);
       }
       if (stderr) {
         console.error(`stderr: ${stderr}`);
-        reject(stderr);
-        return;
+        return reject(stderr);
       }
       console.log(`stdout: ${stdout}`);
       resolve(stdout);
