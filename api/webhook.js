@@ -2,6 +2,7 @@ const twilio = require('twilio');
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const qs = require('querystring'); // Required to parse URL-encoded form data
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -22,21 +23,30 @@ const downloadBinary = (url, destinationPath) => {
   });
 };
 
-// Download yt-dlp and ffmpeg to /tmp at runtime
-const ytDlpPath = '/tmp/yt-dlp';
-const ffmpegPath = '/tmp/ffmpeg';
+// Function to download yt-dlp and ffmpeg to /tmp at runtime
+const downloadBinaries = async () => {
+  const ytDlpPath = '/tmp/yt-dlp';
+  const ffmpegPath = '/tmp/ffmpeg';
 
-// Example URLs to download yt-dlp and ffmpeg
-const ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/2025.03.05/yt-dlp-linux';
-const ffmpegUrl = 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-i686-static.tar.xz'; 
+  const ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/2025.03.05/yt-dlp-linux';
+  const ffmpegUrl = 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-i686-static.tar.xz'; 
 
-await downloadBinary(ytDlpUrl, ytDlpPath);
-await downloadBinary(ffmpegUrl, ffmpegPath);
+  await downloadBinary(ytDlpUrl, ytDlpPath);
+  await downloadBinary(ffmpegUrl, ffmpegPath);
 
+  // Make sure to set executable permissions for the binaries
+  fs.chmodSync(ytDlpPath, '755');
+  fs.chmodSync(ffmpegPath, '755');
+
+  console.log('Binaries downloaded and permissions set');
+};
+
+// Main function for handling the webhook
 module.exports = async (req, res) => {
   try {
-    let incomingMessage = '';
+    await downloadBinaries(); // Download binaries when the webhook is triggered
 
+    let incomingMessage = '';
     req.on('data', chunk => {
       incomingMessage += chunk;
     });
@@ -135,7 +145,10 @@ function isYouTubeLink(url) {
 function downloadAudio(videoUrl, outputPath) {
   return new Promise((resolve, reject) => {
     // Use the module paths for yt-dlp and ffmpeg
-    const command = `"${ytDlpExecutable}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegLocation}"`;
+    const ytDlpPath = '/tmp/yt-dlp';  // Updated path for runtime download
+    const ffmpegPath = '/tmp/ffmpeg'; // Updated path for runtime download
+
+    const command = `"${ytDlpPath}" ${videoUrl} --extract-audio --audio-format mp3 --output "${outputPath}" --ffmpeg-location "${ffmpegPath}"`;
 
     console.log('Executing command:', command); // Log the command
 
