@@ -2,16 +2,13 @@
   "name": "whatsapp-bot",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vercel dev",
+    "devz": "vercel dev",
     "build": "vercel build"
   },
   "dependencies": {
-    "express": "^4.17.1",
-    "twilio": "^3.59.0",
     "child_process": "^1.0.2",
-    "ngrok": "^4.1.0"
-  },
-  "devDependencies": {
-    "vercel": "^23.0.0"
+    "express": "^4.17.1",
+    "ngrok": "^4.1.0",
+    "twilio": "^3.59.0"
   }
 }
