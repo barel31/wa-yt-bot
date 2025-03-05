@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vercel dev",
-    "build": "echo 'Skipping build step for Vercel'"
+    "build": "echo 'Skipping build step for Vercel'",
+    "start": "node index.js"
   },
   "dependencies": {
     "child_process": "^1.0.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ngrok": "^5.0.0-beta.2",
     "twilio": "^3.59.0",
     "vercel": "^41.3.1"
   }

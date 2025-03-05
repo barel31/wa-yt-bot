@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
 const { exec } = require('child_process');
