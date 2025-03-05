@@ -7,7 +7,7 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
 
-// Validate that the message contains a YouTube URL.
+// Validate that the URL appears to be a YouTube link.
 function isYouTubeLink(url) {
   return url && (url.includes('youtube.com') || url.includes('youtu.be'));
 }

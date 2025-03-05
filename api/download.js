@@ -2,19 +2,18 @@ const path = require('path');
 const fs = require('fs').promises;
 const { downloadAudio } = require('./download_audio');
 
-const TMP_PATH = '/tmp'; // Vercel's temporary storage
+const TMP_PATH = '/tmp'; // Vercel's temporary storage location
 
 /**
- * Downloads the audio from a given YouTube URL, converts it to MP3,
- * and returns a public URL for the audio file.
+ * Processes the download of the audio from a YouTube URL and returns a public URL.
  * @param {string} videoUrl - The YouTube video URL.
- * @returns {Promise<string>} - The public URL to access the MP3.
+ * @returns {Promise<string>} - The public URL for the converted MP3.
  */
 async function processDownload(videoUrl) {
   const outputFilename = 'audio.mp3';
   const outputPath = path.join(TMP_PATH, outputFilename);
 
-  // Remove existing file if it exists.
+  // Remove any existing file to avoid conflicts.
   try {
     await fs.access(outputPath);
     console.log(`File ${outputPath} exists. Deleting...`);
@@ -28,7 +27,7 @@ async function processDownload(videoUrl) {
   await downloadAudio(videoUrl, outputPath);
   console.log('Audio download complete.');
 
-  // Construct the public URL (adjust as needed).
+  // Construct the public URL to access the audio file via serveAudio endpoint.
   const audioUrl = `https://${process.env.VERCEL_URL}/api/serveAudio?filename=${outputFilename}`;
   return audioUrl;
 }
