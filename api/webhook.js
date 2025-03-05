@@ -9,8 +9,29 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
 const twilioWhatsAppNumber = 'whatsapp:+14155238886';
-const ytDlpExecutable = path.join(__dirname, 'bin', 'yt-dlp');
-const ffmpegLocation = path.join(__dirname, 'bin', 'ffmpeg');
+
+const downloadBinary = (url, destinationPath) => {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(destinationPath);
+    https.get(url, (response) => {
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close(resolve);
+      });
+    }).on('error', reject);
+  });
+};
+
+// Download yt-dlp and ffmpeg to /tmp at runtime
+const ytDlpPath = '/tmp/yt-dlp';
+const ffmpegPath = '/tmp/ffmpeg';
+
+// Example URLs to download yt-dlp and ffmpeg
+const ytDlpUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/2025.03.05/yt-dlp-linux';
+const ffmpegUrl = 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-i686-static.tar.xz'; 
+
+await downloadBinary(ytDlpUrl, ytDlpPath);
+await downloadBinary(ffmpegUrl, ffmpegPath);
 
 module.exports = async (req, res) => {
   try {
