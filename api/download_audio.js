@@ -1,10 +1,13 @@
 const ytdl = require('ytdl-core');
 const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
+const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 const fs = require('fs');
 const path = require('path');
 
-console.log("Using ffmpeg-static binary at:", ffmpegPath);
+console.log("Using ffmpeg binary at:", ffmpegPath);
+if (!fs.existsSync(ffmpegPath)) {
+  console.error("ffmpeg binary not found at", ffmpegPath);
+}
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 /**
