@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 let ffmpeg;      // Will hold the ffmpeg instance.
-let fetchFile;   // Will hold the fetchFile helper (if needed).
+let fetchFile;   // (Optional) in case you need fetchFile.
 let ffmpegLoaded = false;
 
 /**
@@ -11,9 +11,8 @@ let ffmpegLoaded = false;
  */
 async function loadFFmpegModule() {
   if (!ffmpegLoaded) {
-    const ffmpegModule = await import('@ffmpeg/ffmpeg');
-    // Handle both ESM default export and named exports
-    const { createFFmpeg, fetchFile: _fetchFile } = ffmpegModule.default || ffmpegModule;
+    // Directly destructure the named exports.
+    const { createFFmpeg, fetchFile: _fetchFile } = await import('@ffmpeg/ffmpeg');
     if (typeof createFFmpeg !== 'function') {
       throw new Error('createFFmpeg is not a function in the imported module.');
     }
