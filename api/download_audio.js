@@ -1,10 +1,25 @@
 const ytdl = require('ytdl-core');
-const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg');
 const fs = require('fs');
 const path = require('path');
 
-// Create an ffmpeg instance with logging enabled.
-const ffmpeg = createFFmpeg({ log: true });
+let ffmpeg;      // Will hold the createFFmpeg function's instance.
+let fetchFile;   // (Optional) if you need fetchFile.
+let ffmpegLoaded = false;
+
+/**
+ * Dynamically load the @ffmpeg/ffmpeg module and initialize ffmpeg.
+ */
+async function loadFFmpegModule() {
+  if (!ffmpegLoaded) {
+    const ffmpegModule = await import('@ffmpeg/ffmpeg');
+    ffmpeg = ffmpegModule.createFFmpeg({ log: true });
+    fetchFile = ffmpegModule.fetchFile; // In case you need it.
+    console.log('Loading ffmpeg.wasm...');
+    await ffmpeg.load();
+    ffmpegLoaded = true;
+    console.log('ffmpeg.wasm loaded.');
+  }
+}
 
 /**
  * Downloads and converts a YouTube video to an MP3 file using ffmpeg.wasm.
@@ -13,19 +28,13 @@ const ffmpeg = createFFmpeg({ log: true });
  * @returns {Promise<string>} - Resolves with the outputPath when done.
  */
 async function downloadAudio(videoUrl, outputPath) {
-  // Load ffmpeg.wasm if not already loaded.
-  if (!ffmpeg.isLoaded()) {
-    console.log('Loading ffmpeg.wasm...');
-    await ffmpeg.load();
-    console.log('ffmpeg.wasm loaded.');
-  }
-  
+  await loadFFmpegModule();
+
   console.log(`Downloading audio stream from: ${videoUrl}`);
-  // Download the audio stream into memory.
   const audioStream = ytdl(videoUrl, { quality: 'highestaudio' });
   const chunks = [];
   await new Promise((resolve, reject) => {
-    audioStream.on('data', chunk => chunks.push(chunk));
+    audioStream.on('data', (chunk) => chunks.push(chunk));
     audioStream.on('end', resolve);
     audioStream.on('error', reject);
   });
@@ -35,18 +44,18 @@ async function downloadAudio(videoUrl, outputPath) {
   // Write the downloaded audio into ffmpeg's virtual filesystem.
   ffmpeg.FS('writeFile', 'input.m4a', new Uint8Array(audioBuffer));
 
-  // Run ffmpeg to convert the audio to MP3.
   console.log('Converting to MP3...');
+  // Convert the audio to MP3 with a bitrate of 128 kbps.
   await ffmpeg.run('-i', 'input.m4a', '-b:a', '128k', 'output.mp3');
 
-  // Read the converted MP3 file from ffmpeg's filesystem.
+  // Read the converted MP3 file from the virtual filesystem.
   const data = ffmpeg.FS('readFile', 'output.mp3');
 
   // Write the MP3 file to the local /tmp folder.
   await fs.promises.writeFile(outputPath, Buffer.from(data));
   console.log('Audio conversion complete:', outputPath);
 
-  // Clean up the virtual files.
+  // Clean up the virtual filesystem.
   ffmpeg.FS('unlink', 'input.m4a');
   ffmpeg.FS('unlink', 'output.mp3');
 
