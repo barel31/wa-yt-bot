@@ -14,7 +14,6 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioWhatsAppNumber = process.env.TWILIO_WHATSAPP_NUMBER;
 const client = twilio(accountSid, authToken);
 
-// Simple YouTube URL validation
 function isYouTubeLink(url) {
   return url && (url.includes('youtube.com') || url.includes('youtu.be'));
 }
@@ -40,16 +39,18 @@ app.post('/webhook', async (req, res) => {
     return res.status(200).send('Invalid link');
   }
 
-  // Respond immediately so the webhook doesn't timeout
+  // Immediately respond to the webhook to avoid timeout.
   res.status(200).send('Processing your request...');
 
   try {
     const s3Url = await processDownload(message);
     if (!s3Url) throw new Error("S3 URL is undefined");
 
+    // Send a text message along with the media.
     await client.messages.create({
       from: twilioWhatsAppNumber,
       to: from,
+      body: 'Here is your audio file:',
       mediaUrl: [s3Url],
     });
     console.log("WhatsApp message sent successfully with media:", s3Url);

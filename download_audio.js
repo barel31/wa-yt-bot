@@ -13,12 +13,11 @@ const s3 = new AWS.S3({
 async function downloadAudio(videoUrl) {
   const ytDlpPath = path.join(__dirname, 'bin', 'yt-dlp');
   const ffmpegPath = path.join(__dirname, 'bin', 'ffmpeg');
-  // Using a static cookies file in Netscape format.
   const cookiePath = path.join(__dirname, 'cookies_converted.txt');
 
-  // Generate a unique filename using a timestamp.
+  // Generate a unique file name using the current timestamp.
   const uniqueFileName = `audio-${Date.now()}.mp3`;
-  const outputPath = `/tmp/${uniqueFileName}`; // Unique temporary file location
+  const outputPath = `/tmp/${uniqueFileName}`;
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -70,13 +69,20 @@ async function uploadToS3(filePath, fileName) {
     Key: fileName,
     Body: fileStream,
     ContentType: 'audio/mpeg'
-    // Note: No ACL is specified because the bucket blocks public ACLs.
+    // No ACL is set because your bucket blocks public ACLs.
   };
 
   try {
-    const data = await s3.upload(params).promise();
-    console.log('Uploaded to S3:', data.Location);
-    return data.Location;
+    // First, upload the file.
+    await s3.upload(params).promise();
+    // Then, generate a pre-signed URL valid for 1 hour.
+    const signedUrl = s3.getSignedUrl('getObject', {
+      Bucket: bucketName,
+      Key: fileName,
+      Expires: 3600
+    });
+    console.log('Pre-signed URL:', signedUrl);
+    return signedUrl;
   } catch (error) {
     console.error('S3 upload error:', error);
     throw error;
