@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
-const { processDownload } = require('./download_audio');
+const { downloadAudio } = require('./download_audio');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -39,7 +39,7 @@ app.post('/webhook', async (req, res) => {
   res.status(200).send('Processing your request...');
 
   try {
-    const publicUrl = await processDownload(message);
+    const publicUrl = await downloadAudio(message);
 
     await twilio(accountSid, authToken).messages.create({
       from: twilioWhatsAppNumber,
