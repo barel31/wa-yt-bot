@@ -69,7 +69,6 @@ async function uploadToS3(filePath) {
     Key: fileName,
     Body: fileStream,
     ContentType: 'audio/mpeg',
-    ACL: 'public-read', // Make the file publicly accessible
   };
 
   try {
