@@ -19,14 +19,14 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 async function downloadAudio(videoUrl, outputPath) {
   console.log(`Downloading audio stream from: ${videoUrl}`);
   
-  // Add Range header and ensure proper User-Agent to mitigate 410 errors.
+  // Disable chunked download by setting dlChunkSize to 0.
   const audioStream = ytdl(videoUrl, {
     quality: 'highestaudio',
     filter: 'audioonly',
+    dlChunkSize: 0,
     requestOptions: {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Range': 'bytes=0-'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
       }
     }
   });
