@@ -1,67 +1,26 @@
-const ytdl = require('ytdl-core');
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
+const play = require('play-dl');
 const fs = require('fs');
 const path = require('path');
 
-console.log("Using ffmpeg binary at:", ffmpegPath);
-if (!fs.existsSync(ffmpegPath)) {
-  console.error("ffmpeg binary not found at", ffmpegPath);
-}
-ffmpeg.setFfmpegPath(ffmpegPath);
-
-/**
- * Downloads and converts a YouTube video to an MP3 file using a native ffmpeg binary.
- * @param {string} videoUrl - The YouTube video URL.
- * @param {string} outputPath - The local filesystem path where the MP3 will be saved.
- * @returns {Promise<string>} - Resolves with the outputPath when done.
- */
 async function downloadAudio(videoUrl, outputPath) {
-  console.log(`Downloading audio stream from: ${videoUrl}`);
-  
-  // Option 1: Use audioonly filter (default)
-  /*
-  const audioStream = ytdl(videoUrl, {
-    quality: 'highestaudio',
-    filter: 'audioonly',
-    dlChunkSize: 0,
-    highWaterMark: 1 << 25,
-    requestOptions: {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Range': 'bytes=0-'
-      }
-    }
+  const cookiePath = path.join(__dirname, 'cookies_converted.txt');
+  const cookieString = fs.readFileSync(cookiePath, 'utf-8').trim();
+
+  await play.setToken({
+    youtube: { cookie: cookieString }
   });
-  */
-  
-  // Option 2: Use filter for m4a format (uncomment to try)
-  const audioStream = ytdl(videoUrl, {
-    quality: 'highestaudio',
-    filter: format => format.container === 'm4a',
-    dlChunkSize: 0,
-    highWaterMark: 1 << 25,
-    requestOptions: {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Range': 'bytes=0-'
-      }
-    }
+
+  const stream = await play.stream(videoUrl, {
+    useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+               '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
   });
-  
+
   return new Promise((resolve, reject) => {
-    ffmpeg(audioStream)
+    ffmpeg(stream.stream)
       .audioBitrate(128)
       .format('mp3')
-      .on('error', (err, stdout, stderr) => {
-        console.error('Error during audio processing:', err);
-        console.error('ffmpeg stderr:', stderr);
-        reject(err);
-      })
-      .on('end', () => {
-        console.log('Audio conversion complete:', outputPath);
-        resolve(outputPath);
-      })
+      .on('error', reject)
+      .on('end', () => resolve(outputPath))
       .save(outputPath);
   });
 }

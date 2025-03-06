@@ -5,7 +5,7 @@ const { processDownload } = require('./download');
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
-const twilioWhatsAppNumber = process.env.TWILIO_WHATSAPP_NUMBER;
+const twilioWhatsAppNumber = 'whatsapp:+14155238886';
 
 // Validates that the provided URL appears to be a YouTube link.
 function isYouTubeLink(url) {
