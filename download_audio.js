@@ -68,17 +68,29 @@ async function uploadToS3(filePath) {
     Bucket: bucketName,
     Key: fileName,
     Body: fileStream,
-    ContentType: 'audio/mpeg',
+    ContentType: 'audio/mpeg'
+    // No ACL needed, as public access is blocked.
   };
 
   try {
-    const data = await s3.upload(params).promise();
-    console.log('Uploaded to S3:', data.Location);
-    return data.Location; // Return the public URL
+    // Upload the file to S3.
+    await s3.upload(params).promise();
+    console.log('Uploaded to S3:', fileName);
+    
+    // Generate a pre-signed URL, valid for 1 hour (3600 seconds).
+    const signedUrl = s3.getSignedUrl('getObject', {
+      Bucket: bucketName,
+      Key: fileName,
+      Expires: 3600 // URL expires in 1 hour.
+    });
+    
+    console.log('Pre-signed URL:', signedUrl);
+    return signedUrl;
   } catch (error) {
     console.error('S3 upload error:', error);
     throw error;
   }
 }
+
 
 module.exports = { downloadAudio };
