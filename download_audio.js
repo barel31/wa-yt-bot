@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const AWS = require('aws-sdk');
 
-// Configure AWS S3 using environment variables
+// Configure AWS S3 using environment variables.
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
@@ -13,10 +13,12 @@ const s3 = new AWS.S3({
 async function downloadAudio(videoUrl) {
   const ytDlpPath = path.join(__dirname, 'bin', 'yt-dlp');
   const ffmpegPath = path.join(__dirname, 'bin', 'ffmpeg');
-  // Static cookies file in Netscape format (update regularly)
+  // Using a static cookies file in Netscape format.
   const cookiePath = path.join(__dirname, 'cookies_converted.txt');
 
-  const outputPath = `/tmp/audio.mp3`; // Temporary file location
+  // Generate a unique filename using a timestamp.
+  const uniqueFileName = `audio-${Date.now()}.mp3`;
+  const outputPath = `/tmp/${uniqueFileName}`; // Unique temporary file location
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -43,7 +45,7 @@ async function downloadAudio(videoUrl) {
       if (code === 0) {
         console.log('Download complete. Uploading file to S3...');
         try {
-          const s3Url = await uploadToS3(outputPath);
+          const s3Url = await uploadToS3(outputPath, uniqueFileName);
           resolve(s3Url);
         } catch (uploadError) {
           reject(uploadError);
@@ -59,9 +61,8 @@ async function downloadAudio(videoUrl) {
   });
 }
 
-async function uploadToS3(filePath) {
+async function uploadToS3(filePath, fileName) {
   const fileStream = fs.createReadStream(filePath);
-  const fileName = `audio-${Date.now()}.mp3`;
   const bucketName = process.env.S3_BUCKET_NAME;
 
   const params = {
@@ -69,28 +70,17 @@ async function uploadToS3(filePath) {
     Key: fileName,
     Body: fileStream,
     ContentType: 'audio/mpeg'
-    // No ACL needed, as public access is blocked.
+    // Note: No ACL is specified because the bucket blocks public ACLs.
   };
 
   try {
-    // Upload the file to S3.
-    await s3.upload(params).promise();
-    console.log('Uploaded to S3:', fileName);
-    
-    // Generate a pre-signed URL, valid for 1 hour (3600 seconds).
-    const signedUrl = s3.getSignedUrl('getObject', {
-      Bucket: bucketName,
-      Key: fileName,
-      Expires: 3600 // URL expires in 1 hour.
-    });
-    
-    console.log('Pre-signed URL:', signedUrl);
-    return signedUrl;
+    const data = await s3.upload(params).promise();
+    console.log('Uploaded to S3:', data.Location);
+    return data.Location;
   } catch (error) {
     console.error('S3 upload error:', error);
     throw error;
   }
 }
-
 
 module.exports = { downloadAudio };
