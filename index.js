@@ -1,20 +1,20 @@
 require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
-const { downloadAudio } = require('./download_audio');
+const { processDownload } = require('./download');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioWhatsAppNumber = process.env.TWILIO_WHATSAPP_NUMBER;
-
 const client = twilio(accountSid, authToken);
 
-// Validates that the provided URL appears to be a YouTube link.
+// Simple YouTube URL validation
 function isYouTubeLink(url) {
   return url && (url.includes('youtube.com') || url.includes('youtu.be'));
 }
@@ -28,31 +28,42 @@ app.post('/webhook', async (req, res) => {
   }
 
   if (!isYouTubeLink(message)) {
-    await client.messages.create({
-      from: twilioWhatsAppNumber,
-      to: from,
-      body: 'Please send a valid YouTube link.',
-    });
+    try {
+      await client.messages.create({
+        from: twilioWhatsAppNumber,
+        to: from,
+        body: 'Please send a valid YouTube link.',
+      });
+    } catch (err) {
+      console.error("Error sending invalid link message:", err);
+    }
     return res.status(200).send('Invalid link');
   }
 
+  // Respond immediately so the webhook doesn't timeout
   res.status(200).send('Processing your request...');
 
   try {
-    const publicUrl = await downloadAudio(message);
+    const s3Url = await processDownload(message);
+    if (!s3Url) throw new Error("S3 URL is undefined");
 
-    await twilio(accountSid, authToken).messages.create({
+    await client.messages.create({
       from: twilioWhatsAppNumber,
       to: from,
-      mediaUrl: [publicUrl],
+      mediaUrl: [s3Url],
     });
+    console.log("WhatsApp message sent successfully with media:", s3Url);
   } catch (error) {
     console.error('Error processing request:', error);
-    await twilio(accountSid, authToken).messages.create({
-      from: twilioWhatsAppNumber,
-      to: from,
-      body: 'Sorry, there was an error processing your request.',
-    });
+    try {
+      await client.messages.create({
+        from: twilioWhatsAppNumber,
+        to: from,
+        body: 'Sorry, there was an error processing your request.',
+      });
+    } catch (err) {
+      console.error("Error sending error message:", err);
+    }
   }
 });
 
