@@ -17,8 +17,8 @@ async function downloadAudio(videoUrl, outputPath) {
       '128K',
       '--ffmpeg-location',
       ffmpegPath,
-      '--cookies',
-      cookiePath,
+      // '--cookies',
+      // cookiePath,
       '-o',
       outputPath,
     ];
