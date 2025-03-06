@@ -1,41 +1,43 @@
-const play = require('play-dl');
-const fs = require('fs');
+const { spawn } = require('child_process');
 const path = require('path');
-const ffmpeg = require('fluent-ffmpeg');
-
-const ffmpegPath = path.join(__dirname, 'ffmpeg');
-ffmpeg.setFfmpegPath(ffmpegPath);
 
 async function downloadAudio(videoUrl, outputPath) {
-  try {
-    const cookiePath = path.join(__dirname, 'cookies_converted.txt');
-    const cookieString = fs.readFileSync(cookiePath, 'utf-8').trim();
+  const ytDlpPath = path.join(__dirname, 'yt-dlp');
+  const ffmpegPath = path.join(__dirname, 'ffmpeg');
+  const cookiePath = path.join(__dirname, 'cookies_converted.txt');
 
-    await play.setToken({
-      youtube: { cookie: cookieString }
+  return new Promise((resolve, reject) => {
+    const args = [
+      videoUrl,
+      '-x', '--audio-format', 'mp3',
+      '--audio-quality', '128K',
+      '--ffmpeg-location', ffmpegPath,
+      '--cookies', cookiePath,
+      '-o', outputPath
+    ];
+
+    const ytDlpProcess = spawn(ytDlpPath, args);
+
+    ytDlpProcess.stdout.on('data', (data) => {
+      console.log(`yt-dlp: ${data}`);
     });
 
-    const stream = await play.stream(videoUrl, {
-      useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-                 '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+    ytDlpProcess.stderr.on('data', (data) => {
+      console.error(`yt-dlp error: ${data}`);
     });
 
-    return new Promise((resolve, reject) => {
-      ffmpeg(stream.stream)
-        .audioBitrate(128)
-        .format('mp3')
-        .on('error', (err) => {
-          console.error('FFmpeg error:', err);
-          reject(err);
-        })
-        .on('end', () => resolve(outputPath))
-        .save(outputPath);
+    ytDlpProcess.on('close', (code) => {
+      if (code === 0) {
+        resolve(outputPath);
+      } else {
+        reject(new Error(`yt-dlp exited with code ${code}`));
+      }
     });
 
-  } catch (error) {
-    console.error('Error in downloadAudio:', error);
-    throw error;
-  }
+    ytDlpProcess.on('error', (err) => {
+      reject(err);
+    });
+  });
 }
 
 module.exports = { downloadAudio };
