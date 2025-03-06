@@ -19,7 +19,7 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
 
 // Your Twilio WhatsApp sandbox number
-const twilioWhatsAppNumber = 'whatsapp:+14155238886';
+const twilioWhatsAppNumber = process.env.TWILIO_WHATSAPP_NUMBER;
 
 // Path to yt-dlp executable (same folder as this script)
 const ytDlpExecutable = path.join(__dirname, 'tools/yt-dlp.exe');

@@ -19,14 +19,32 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 async function downloadAudio(videoUrl, outputPath) {
   console.log(`Downloading audio stream from: ${videoUrl}`);
   
-  // Disable chunked download by setting dlChunkSize to 0.
+  // Option 1: Use audioonly filter (default)
+  /*
   const audioStream = ytdl(videoUrl, {
     quality: 'highestaudio',
     filter: 'audioonly',
     dlChunkSize: 0,
+    highWaterMark: 1 << 25,
     requestOptions: {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Range': 'bytes=0-'
+      }
+    }
+  });
+  */
+  
+  // Option 2: Use filter for m4a format (uncomment to try)
+  const audioStream = ytdl(videoUrl, {
+    quality: 'highestaudio',
+    filter: format => format.container === 'm4a',
+    dlChunkSize: 0,
+    highWaterMark: 1 << 25,
+    requestOptions: {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Range': 'bytes=0-'
       }
     }
   });
