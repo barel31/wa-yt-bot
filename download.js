@@ -51,7 +51,7 @@ function createProgressBar(progress) {
 
 /**
  * Polls the RapidAPI endpoint until a valid link is available.
- * Updates status via updateCallback.
+ * Updates status using updateCallback.
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
  * @param {Function} updateCallback - Callback to update status.

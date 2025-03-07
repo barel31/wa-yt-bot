@@ -5,6 +5,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const AWS = require('aws-sdk');
+const crypto = require('crypto');
 const { processDownload, extractVideoId } = require('./download');
 
 const app = express();
@@ -17,7 +18,10 @@ const s3 = new AWS.S3({
   region: process.env.AWS_REGION,
 });
 
-// Global tracker for active downloads per chat
+// Compute MD5 hash of your RapidAPI username (Method 2)
+const rapidapiUsername = process.env.RAPIDAPI_USERNAME;
+const xRunHeader = rapidapiUsername ? crypto.createHash('md5').update(rapidapiUsername).digest('hex') : '';
+
 const activeDownloads = {};
 
 // Initialize Telegram bot with polling.
@@ -28,7 +32,6 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // Check if a download is already in progress for this chat.
   if (activeDownloads[chatId]) {
     bot.sendMessage(chatId, 'יש הורדה פעילה. אנא המתן לסיום ההורדה הנוכחית.');
     return;
@@ -71,14 +74,12 @@ bot.on('callback_query', async (callbackQuery) => {
   const messageId = callbackQuery.message.message_id;
   const action = parsed.action;
 
-  // Remove inline buttons to prevent spam.
   try {
     await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId });
   } catch (error) {
     console.error('שגיאה בעת הסרת הלחצנים:', error.message);
   }
 
-  // Mark this chat as busy.
   activeDownloads[chatId] = true;
 
   if (action === 'cancel') {
@@ -92,7 +93,6 @@ bot.on('callback_query', async (callbackQuery) => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Send a progress message (to be updated later).
     let progressMsg;
     try {
       progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
@@ -100,7 +100,6 @@ bot.on('callback_query', async (callbackQuery) => {
       console.error('שגיאה בשליחת הודעת סטטוס התחלתית:', error);
     }
 
-    // Function to update the progress message.
     const updateStatus = async (newStatus) => {
       try {
         await bot.editMessageText(newStatus, {
@@ -117,17 +116,14 @@ bot.on('callback_query', async (callbackQuery) => {
     };
 
     try {
-      // Process download (this polls RapidAPI and returns the file link and title)
       const result = await processDownload(videoUrl, updateStatus);
       await updateStatus('ההורדה הושלמה. מכין את קובץ האודיו שלך...');
 
-      const sanitizeFileName = (name) => {
-        return name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
-      };
+      const sanitizeFileName = (name) => name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       const sanitizedTitle = sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      // Download file with retry if 404.
+      // File download with retry on 404, including x-run header.
       async function downloadFile(url, localFilePath, updateStatus) {
         const attemptDownload = async () => {
           console.log("Attempting file download from URL:", url);
@@ -138,7 +134,8 @@ bot.on('callback_query', async (callbackQuery) => {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
                             'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-                            'Chrome/115.0.0.0 Safari/537.36'
+                            'Chrome/115.0.0.0 Safari/537.36',
+              'x-run': xRunHeader  // custom header per RapidAPI whitelist method
             },
             validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
           });
@@ -181,7 +178,6 @@ bot.on('callback_query', async (callbackQuery) => {
       };
       await s3.upload(s3Params).promise();
 
-      // Generate a pre-signed URL (valid for 1 hour)
       const s3Url = s3.getSignedUrl('getObject', {
         Bucket: process.env.S3_BUCKET_NAME,
         Key: `${sanitizedTitle}.mp3`,
