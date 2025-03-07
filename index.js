@@ -4,22 +4,31 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const AWS = require('aws-sdk');
 const { processDownload, extractVideoId } = require('./download');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Global tracker for active downloads per chat to prevent spamming.
+// Initialize AWS S3
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+});
+
+// Global tracker for active downloads per chat
 const activeDownloads = {};
 
+// Initialize Telegram bot with polling.
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-bot.on('message', async msg => {
+bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // Prevent multiple downloads in one chat.
+  // Check if a download is already in progress for this chat.
   if (activeDownloads[chatId]) {
     bot.sendMessage(chatId, 'יש הורדה פעילה. אנא המתן לסיום ההורדה הנוכחית.');
     return;
@@ -32,50 +41,39 @@ bot.on('message', async msg => {
 
   const videoId = extractVideoId(text);
   if (!videoId) {
-    return bot.sendMessage(
-      chatId,
-      'לא ניתן לחלץ את מזהה הווידאו. אנא נסה קישור אחר.'
-    );
+    return bot.sendMessage(chatId, 'לא ניתן לחלץ את מזהה הווידאו. אנא נסה קישור אחר.');
   }
 
   const callbackData = JSON.stringify({ action: 'download', id: videoId });
   const cancelData = JSON.stringify({ action: 'cancel' });
-
   const inlineKeyboard = {
     inline_keyboard: [
       [
         { text: 'הורד MP3', callback_data: callbackData },
-        { text: 'בטל', callback_data: cancelData },
-      ],
-    ],
+        { text: 'בטל', callback_data: cancelData }
+      ]
+    ]
   };
 
-  bot.sendMessage(chatId, 'איך תרצה להוריד את הווידאו? (כרגע זמין רק MP3)', {
-    reply_markup: inlineKeyboard,
-  });
+  bot.sendMessage(chatId, 'איך תרצה להוריד את הווידאו? (כרגע זמין רק MP3)', { reply_markup: inlineKeyboard });
 });
 
-bot.on('callback_query', async callbackQuery => {
+bot.on('callback_query', async (callbackQuery) => {
   let parsed;
   try {
     parsed = JSON.parse(callbackQuery.data);
   } catch (e) {
     console.error('שגיאה בפיענוח נתוני החזרה:', e);
-    return bot.answerCallbackQuery(callbackQuery.id, {
-      text: 'בחירה לא תקינה',
-    });
+    return bot.answerCallbackQuery(callbackQuery.id, { text: 'בחירה לא תקינה' });
   }
 
   const chatId = callbackQuery.message.chat.id;
   const messageId = callbackQuery.message.message_id;
   const action = parsed.action;
 
-  // Remove inline buttons immediately to prevent spamming.
+  // Remove inline buttons to prevent spam.
   try {
-    await bot.editMessageReplyMarkup(
-      { inline_keyboard: [] },
-      { chat_id: chatId, message_id: messageId }
-    );
+    await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId });
   } catch (error) {
     console.error('שגיאה בעת הסרת הלחצנים:', error.message);
   }
@@ -94,7 +92,7 @@ bot.on('callback_query', async callbackQuery => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Send a progress message that will be updated.
+    // Send a progress message (to be updated later).
     let progressMsg;
     try {
       progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
@@ -102,20 +100,16 @@ bot.on('callback_query', async callbackQuery => {
       console.error('שגיאה בשליחת הודעת סטטוס התחלתית:', error);
     }
 
-    // Function to update the progress message by editing it.
-    const updateStatus = async newStatus => {
+    // Function to update the progress message.
+    const updateStatus = async (newStatus) => {
       try {
         await bot.editMessageText(newStatus, {
           chat_id: chatId,
-          message_id: progressMsg.message_id,
+          message_id: progressMsg.message_id
         });
       } catch (error) {
-        if (
-          error &&
-          error.message &&
-          error.message.includes('message is not modified')
-        ) {
-          // Ignore if content hasn't changed.
+        if (error && error.message && error.message.includes('message is not modified')) {
+          // Ignore if unchanged.
         } else {
           console.error('שגיאה בעדכון הודעת סטטוס:', error);
         }
@@ -123,86 +117,85 @@ bot.on('callback_query', async callbackQuery => {
     };
 
     try {
+      // Process download (this polls RapidAPI and returns the file link and title)
       const result = await processDownload(videoUrl, updateStatus);
       await updateStatus('ההורדה הושלמה. מכין את קובץ האודיו שלך...');
 
-      const sanitizeFileName = name => {
+      const sanitizeFileName = (name) => {
         return name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       };
-      const sanitizedTitle =
-        sanitizeFileName(result.title) || `audio_${Date.now()}`;
+      const sanitizedTitle = sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
+      // Download file with retry if 404.
       async function downloadFile(url, localFilePath, updateStatus) {
-        // Attempt a single download
         const attemptDownload = async () => {
-          console.log('Attempting file download from URL:', url);
+          console.log("Attempting file download from URL:", url);
           const response = await axios({
             url,
             method: 'GET',
             responseType: 'stream',
             headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-                'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-                'Chrome/115.0.0.0 Safari/537.36',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+                            'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+                            'Chrome/115.0.0.0 Safari/537.36'
             },
-            validateStatus: status =>
-              (status >= 200 && status < 300) || status === 404,
+            validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
           });
-          console.log(
-            `Response status: ${response.status} ${response.statusText}`
-          );
+          console.log(`Response status: ${response.status} ${response.statusText}`);
           return response;
         };
 
-        // Try the download once
         let response = await attemptDownload();
         if (response.status === 404) {
-          // If 404, wait and try one more time.
           await updateStatus('מצטער, לא נמצא הקובץ (404). מנסה שנית...');
           await new Promise(resolve => setTimeout(resolve, 3000));
           response = await attemptDownload();
         }
         return response;
       }
-
-      // Use the downloadFile function:
-      try {
-        const response = await downloadFile(
-          result.link,
-          localFilePath,
-          updateStatus
-        );
-
-        if (response.status === 404) {
-          console.error('File not found (404) on download after retry.');
-          await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
-          activeDownloads[chatId] = false;
-          return;
-        }
-
-        const writer = fs.createWriteStream(localFilePath);
-        response.data.pipe(writer);
-        await new Promise((resolve, reject) => {
-          writer.on('finish', resolve);
-          writer.on('error', reject);
-        });
-      } catch (downloadError) {
-        console.error('Error downloading file:', downloadError.message);
-        await updateStatus('מצטער, שגיאה בהורדת הקובץ.');
+      
+      const response = await downloadFile(result.link, localFilePath, updateStatus);
+      if (response.status === 404) {
+        console.error('File not found (404) on download after retry.');
+        await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
+        bot.sendMessage(chatId, 'מצטער, לא נמצא הקובץ (שגיאה 404).');
         activeDownloads[chatId] = false;
         return;
       }
-
-      await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
-      await bot.sendAudio(chatId, localFilePath, {
-        caption: `הנה קובץ האודיו שלך: ${result.title}`,
-        filename: `${sanitizedTitle}.mp3`,
-        contentType: 'audio/mpeg',
+      
+      const writer = fs.createWriteStream(localFilePath);
+      response.data.pipe(writer);
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
       });
 
-      fs.unlink(localFilePath, err => {
+      await updateStatus('מעלה את הקובץ ל-S3, אנא המתן...');
+      const fileStream = fs.createReadStream(localFilePath);
+      const s3Params = {
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: `${sanitizedTitle}.mp3`,
+        Body: fileStream,
+        ContentType: 'audio/mpeg'
+      };
+      await s3.upload(s3Params).promise();
+
+      // Generate a pre-signed URL (valid for 1 hour)
+      const s3Url = s3.getSignedUrl('getObject', {
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: `${sanitizedTitle}.mp3`,
+        Expires: 3600
+      });
+
+      await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
+      await bot.sendAudio(chatId, s3Url, {
+        caption: `הנה קובץ האודיו שלך: ${result.title}`,
+        filename: `${sanitizedTitle}.mp3`,
+        contentType: 'audio/mpeg'
+      });
+      
+      fs.unlink(localFilePath, (err) => {
         if (err) console.error('שגיאה במחיקת הקובץ הזמני:', err);
       });
     } catch (error) {
@@ -214,7 +207,6 @@ bot.on('callback_query', async callbackQuery => {
       }
     }
   }
-  // Reset the active download flag for this chat.
   activeDownloads[chatId] = false;
 });
 

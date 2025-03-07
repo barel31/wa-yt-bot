@@ -2,7 +2,7 @@ const axios = require('axios');
 
 /**
  * Extracts the YouTube video ID from a given URL.
- * Supports youtu.be, youtube.com, and YouTube Shorts (e.g., /shorts/VIDEO_ID).
+ * Supports youtu.be, youtube.com, and YouTube Shorts (/shorts/VIDEO_ID).
  * @param {string} url - The YouTube URL.
  * @returns {string|null} - The video ID or null if not found.
  */
@@ -30,7 +30,7 @@ function extractVideoId(url) {
 }
 
 /**
- * Sleeps for the given number of milliseconds.
+ * Sleeps for a given number of milliseconds.
  * @param {number} ms - Milliseconds to sleep.
  * @returns {Promise<void>}
  */
@@ -51,7 +51,7 @@ function createProgressBar(progress) {
 
 /**
  * Polls the RapidAPI endpoint until a valid link is available.
- * Updates status using updateCallback.
+ * Updates status via updateCallback.
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
  * @param {Function} updateCallback - Callback to update status.
@@ -59,7 +59,7 @@ function createProgressBar(progress) {
  * @param {number} delayMs - Delay between attempts in ms.
  * @returns {Promise<{ link: string, title: string }>}
  */
-async function pollForLink(videoId, options, updateCallback, maxAttempts = 30, delayMs = 6000) {
+async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000) {
   let lastStatus = '';
   let queueCount = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
