@@ -50,7 +50,7 @@ app.post('/webhook', async (req, res) => {
     await client.messages.create({
       from: twilioWhatsAppNumber,
       to: from,
-      body: 'Here is your audio file:',
+      body: 'Here is your audio file. If it doesnt play automatically, click the link: ' + s3Url,
       mediaUrl: [s3Url],
     });
     console.log("WhatsApp message sent successfully with media:", s3Url);
