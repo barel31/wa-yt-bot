@@ -107,8 +107,17 @@ bot.on('callback_query', async (callbackQuery) => {
         const response = await axios({
           url: result.link,
           method: 'GET',
-          responseType: 'stream'
+          responseType: 'stream',
+          // Allow 404 so we can check it manually
+          validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
         });
+        
+        if (response.status === 404) {
+          console.error('File not found (404) on download.');
+          await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
+          return;
+        }
+        
         const writer = fs.createWriteStream(localFilePath);
         response.data.pipe(writer);
         await new Promise((resolve, reject) => {
@@ -116,8 +125,8 @@ bot.on('callback_query', async (callbackQuery) => {
           writer.on('error', reject);
         });
       } catch (downloadError) {
-        console.error('שגיאה בהורדת הקובץ:', downloadError.message);
-        await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
+        console.error('Error downloading file:', downloadError.message);
+        await updateStatus('מצטער, שגיאה בהורדת הקובץ.');
         return;
       }
 
