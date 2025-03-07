@@ -9,6 +9,9 @@ const { processDownload, extractVideoId } = require('./download');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Global object to track active downloads by chat ID.
+const activeDownloads = {};
+
 // Initialize the Telegram bot with polling.
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
@@ -16,6 +19,12 @@ const bot = new TelegramBot(token, { polling: true });
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
+
+  // If a download is already active for this chat, inform the user.
+  if (activeDownloads[chatId]) {
+    bot.sendMessage(chatId, 'יש הורדה פעילה. אנא המתן לסיום ההורדה הנוכחית.');
+    return;
+  }
 
   if (!text || !(text.includes('youtube.com') || text.includes('youtu.be'))) {
     bot.sendMessage(chatId, 'נא לשלוח קישור YouTube תקין.');
@@ -56,11 +65,23 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 
   const chatId = callbackQuery.message.chat.id;
+  const messageId = callbackQuery.message.message_id;
   const action = parsed.action;
+
+  // Remove inline keyboard to prevent further clicks.
+  try {
+    await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId });
+  } catch (error) {
+    console.error('שגיאה בעת הסרת הלחצנים:', error.message);
+  }
+
+  // Mark this chat as busy.
+  activeDownloads[chatId] = true;
 
   if (action === 'cancel') {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'בוטל' });
     bot.sendMessage(chatId, 'ההורדה בוטלה.');
+    activeDownloads[chatId] = false;
     return;
   }
 
@@ -68,7 +89,7 @@ bot.on('callback_query', async (callbackQuery) => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Send a progress message which will be updated.
+    // Send a progress message that will be updated.
     let progressMsg;
     try {
       progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
@@ -113,6 +134,7 @@ bot.on('callback_query', async (callbackQuery) => {
         console.error('File not found (404) on download.');
         await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
         bot.sendMessage(chatId, 'מצטער, לא נמצא הקובץ (שגיאה 404).');
+        activeDownloads[chatId] = false;
         return;
       }
       
@@ -133,7 +155,6 @@ bot.on('callback_query', async (callbackQuery) => {
       });
     } catch (error) {
       console.error('שגיאה בעיבוד ההורדה:', error.message);
-      // If updateStatus fails to show the error, send a new message.
       try {
         await updateStatus(`שגיאה: ${error.message}`);
       } catch (e) {
@@ -141,6 +162,8 @@ bot.on('callback_query', async (callbackQuery) => {
       }
     }
   }
+  // Reset the active download flag for this chat.
+  activeDownloads[chatId] = false;
 });
 
 app.listen(port, () => {

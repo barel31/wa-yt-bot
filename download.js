@@ -54,7 +54,7 @@ function createProgressBar(progress) {
  */
 async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000) {
   let lastStatus = '';
-  let queueCount = 0; // count of consecutive "in queue" responses
+  let queueCount = 0; // count consecutive "in queue"
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await sleep(delayMs);
     try {
