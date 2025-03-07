@@ -133,29 +133,50 @@ bot.on('callback_query', async callbackQuery => {
         sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      /// Attempt to download the file with a custom User-Agent header.
-      try {
-        console.log('Attempting file download from URL:', result.link);
-        const response = await axios({
-          url: result.link,
-          method: 'GET',
-          responseType: 'stream',
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-              'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-              'Chrome/115.0.0.0 Safari/537.36',
-          },
-          validateStatus: status =>
-            (status >= 200 && status < 300) || status === 404,
-        });
+      async function downloadFile(url, localFilePath, updateStatus) {
+        // Attempt a single download
+        const attemptDownload = async () => {
+          console.log('Attempting file download from URL:', url);
+          const response = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream',
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+                'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+                'Chrome/115.0.0.0 Safari/537.36',
+            },
+            validateStatus: status =>
+              (status >= 200 && status < 300) || status === 404,
+          });
+          console.log(
+            `Response status: ${response.status} ${response.statusText}`
+          );
+          return response;
+        };
 
-        console.log(
-          `Response status: ${response.status} ${response.statusText}`
+        // Try the download once
+        let response = await attemptDownload();
+        if (response.status === 404) {
+          // If 404, wait and try one more time.
+          await updateStatus('מצטער, לא נמצא הקובץ (404). מנסה שנית...');
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          response = await attemptDownload();
+        }
+        return response;
+      }
+
+      // Use the downloadFile function:
+      try {
+        const response = await downloadFile(
+          result.link,
+          localFilePath,
+          updateStatus
         );
 
         if (response.status === 404) {
-          console.error('File not found (404) on download.');
+          console.error('File not found (404) on download after retry.');
           await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
           activeDownloads[chatId] = false;
           return;
