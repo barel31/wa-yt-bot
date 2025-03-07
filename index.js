@@ -116,7 +116,7 @@ bot.on('callback_query', async (callbackQuery) => {
           writer.on('error', reject);
         });
       } catch (downloadError) {
-        console.error('שגיאה בהורדת הקובץ:', downloadError);
+        console.error('שגיאה בהורדת הקובץ:', downloadError.message);
         await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
         return;
       }
