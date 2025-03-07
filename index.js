@@ -68,7 +68,7 @@ bot.on('callback_query', async (callbackQuery) => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Send a single progress message that will be updated.
+    // Send a progress message which will be updated.
     let progressMsg;
     try {
       progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
@@ -95,40 +95,33 @@ bot.on('callback_query', async (callbackQuery) => {
     try {
       const result = await processDownload(videoUrl, updateStatus);
       await updateStatus('ההורדה הושלמה. מכין את קובץ האודיו שלך...');
-      
+
       const sanitizeFileName = (name) => {
         return name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       };
       const sanitizedTitle = sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      // Try to download the file.
-      try {
-        const response = await axios({
-          url: result.link,
-          method: 'GET',
-          responseType: 'stream',
-          // Allow 404 so we can check it manually
-          validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
-        });
-        
-        if (response.status === 404) {
-          console.error('File not found (404) on download.');
-          await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
-          return;
-        }
-        
-        const writer = fs.createWriteStream(localFilePath);
-        response.data.pipe(writer);
-        await new Promise((resolve, reject) => {
-          writer.on('finish', resolve);
-          writer.on('error', reject);
-        });
-      } catch (downloadError) {
-        console.error('Error downloading file:', downloadError.message);
-        await updateStatus('מצטער, שגיאה בהורדת הקובץ.');
+      const response = await axios({
+        url: result.link,
+        method: 'GET',
+        responseType: 'stream',
+        validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
+      });
+      
+      if (response.status === 404) {
+        console.error('File not found (404) on download.');
+        await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
+        bot.sendMessage(chatId, 'מצטער, לא נמצא הקובץ (שגיאה 404).');
         return;
       }
+      
+      const writer = fs.createWriteStream(localFilePath);
+      response.data.pipe(writer);
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
 
       await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
       await bot.sendAudio(chatId, localFilePath, {
@@ -139,8 +132,13 @@ bot.on('callback_query', async (callbackQuery) => {
         if (err) console.error('שגיאה במחיקת הקובץ הזמני:', err);
       });
     } catch (error) {
-      console.error('שגיאה בעיבוד ההורדה:', error);
-      await updateStatus('מצטער, אירעה שגיאה בעיבוד הבקשה שלך.');
+      console.error('שגיאה בעיבוד ההורדה:', error.message);
+      // If updateStatus fails to show the error, send a new message.
+      try {
+        await updateStatus(`שגיאה: ${error.message}`);
+      } catch (e) {
+        bot.sendMessage(chatId, `שגיאה: ${error.message}`);
+      }
     }
   }
 });

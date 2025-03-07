@@ -28,7 +28,7 @@ function extractVideoId(url) {
  * @returns {Promise<void>}
  */
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -44,7 +44,7 @@ function createProgressBar(progress) {
 
 /**
  * Polls the RapidAPI endpoint until a valid link is available.
- * Calls updateCallback with a text-based progress bar.
+ * Updates status via updateCallback.
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
  * @param {Function} updateCallback - Callback to update status.
@@ -52,24 +52,42 @@ function createProgressBar(progress) {
  * @param {number} delayMs - Delay between attempts in ms.
  * @returns {Promise<{ link: string, title: string }>} - The mp3 link and title.
  */
-async function pollForLink(videoId, options, updateCallback, maxAttempts = 10, delayMs = 3000) {
+async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000) {
+  let lastStatus = '';
+  let queueCount = 0; // count of consecutive "in queue" responses
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await sleep(delayMs);
     try {
       const pollResponse = await axios.request(options);
       const progressValue = pollResponse.data.progress || 0;
-      const bar = createProgressBar(progressValue);
-      await updateCallback(`ממיר...\n${bar}`);
-
+      lastStatus = pollResponse.data.msg || '';
+      
+      if (lastStatus.toLowerCase().includes("in queue")) {
+        queueCount++;
+      } else {
+        queueCount = 0;
+      }
+      
+      await updateCallback(`ממיר...\n${createProgressBar(progressValue)}\nסטטוס: ${lastStatus}`);
+      
+      if (pollResponse.data.status === 'fail') {
+        throw new Error(pollResponse.data.msg);
+      }
+      
       if (pollResponse.data.link && pollResponse.data.link !== '') {
         return { link: pollResponse.data.link, title: pollResponse.data.title };
       }
+      
+      if (queueCount >= 5) {
+        throw new Error("Conversion stuck in queue");
+      }
     } catch (pollError) {
-      console.error('שגיאה בעדכון סטטוס מ-RapidAPI:', pollError);
+      console.error('Error polling RapidAPI:', pollError.message);
       await updateCallback(`שגיאה בעדכון סטטוס: ${pollError.message}`);
+      throw pollError;
     }
   }
-  throw new Error('לא נוצר קישור לאחר מספר ניסיונות מקסימלי');
+  throw new Error(`לא נוצר קישור לאחר ${maxAttempts} ניסיונות. סטטוס אחרון: ${lastStatus}`);
 }
 
 /**
@@ -96,15 +114,22 @@ async function processDownload(videoUrl, updateCallback) {
 
   try {
     const response = await axios.request(options);
+    if (response.data.status === 'fail') {
+      await updateCallback(`ממיר...\n${createProgressBar(response.data.progress || 0)}\nסטטוס: ${response.data.msg}`);
+      throw new Error(response.data.msg);
+    }
+    
     if (response.data.link && response.data.link !== '') {
       return { link: response.data.link, title: response.data.title };
     }
+    
     if (response.data.status === 'processing') {
       return await pollForLink(videoId, options, updateCallback);
     }
+    
     throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
   } catch (error) {
-    console.error('שגיאה ב-RapidAPI:', error);
+    console.error('RapidAPI error:', error.message);
     if (updateCallback) {
       await updateCallback(`שגיאה: ${error.message}`);
     }
