@@ -2,13 +2,20 @@ const axios = require('axios');
 
 /**
  * Extracts the YouTube video ID from a given URL.
- * Supports both "youtu.be" short URLs and standard "youtube.com" URLs.
+ * Supports youtu.be, youtube.com, and YouTube Shorts (e.g., /shorts/VIDEO_ID).
  * @param {string} url - The YouTube URL.
  * @returns {string|null} - The video ID or null if not found.
  */
 function extractVideoId(url) {
   try {
     const urlObj = new URL(url);
+    if (urlObj.pathname.includes('/shorts/')) {
+      const parts = urlObj.pathname.split('/');
+      const shortsIndex = parts.indexOf('shorts');
+      if (shortsIndex !== -1 && parts[shortsIndex + 1]) {
+        return parts[shortsIndex + 1];
+      }
+    }
     if (urlObj.hostname === 'youtu.be') {
       return urlObj.pathname.slice(1);
     }
@@ -32,7 +39,7 @@ function sleep(ms) {
 }
 
 /**
- * Creates a simple text-based progress bar for a given percentage.
+ * Creates a simple text-based progress bar.
  * Example: 40% -> [████░░░░░░] 40%
  */
 function createProgressBar(progress) {
@@ -44,17 +51,17 @@ function createProgressBar(progress) {
 
 /**
  * Polls the RapidAPI endpoint until a valid link is available.
- * Updates status via updateCallback.
+ * Updates status using updateCallback.
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
  * @param {Function} updateCallback - Callback to update status.
  * @param {number} maxAttempts - Maximum polling attempts.
  * @param {number} delayMs - Delay between attempts in ms.
- * @returns {Promise<{ link: string, title: string }>} - The mp3 link and title.
+ * @returns {Promise<{ link: string, title: string }>}
  */
 async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000) {
   let lastStatus = '';
-  let queueCount = 0; // count consecutive "in queue"
+  let queueCount = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await sleep(delayMs);
     try {
@@ -91,7 +98,7 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
 }
 
 /**
- * Downloads audio from a YouTube URL via RapidAPI and returns the mp3 link and title.
+ * Downloads audio from a YouTube URL via RapidAPI.
  * @param {string} videoUrl - The YouTube video URL.
  * @param {Function} updateCallback - Callback for status updates.
  * @returns {Promise<{ link: string, title: string }>}
