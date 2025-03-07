@@ -22,6 +22,12 @@ app.post('/webhook', async (req, res) => {
   const message = req.body.Body;
   const from = req.body.From;
 
+  await client.messages.create({
+    from: twilioWhatsAppNumber,
+    to: from,
+    body: 'test'
+  });
+  return
   if (!message || !from) {
     return res.status(400).send('Invalid request');
   }
