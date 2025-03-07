@@ -17,7 +17,7 @@ function extractVideoId(url) {
     }
     return null;
   } catch (error) {
-    console.error('Error extracting video ID:', error);
+    console.error('שגיאה בחילוץ מזהה הווידאו:', error);
     return null;
   }
 }
@@ -28,60 +28,60 @@ function extractVideoId(url) {
  * @returns {Promise<void>}
  */
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Creates a simple text-based progress bar for a given percentage.
+ * Example: 40% -> [████░░░░░░] 40%
+ */
+function createProgressBar(progress) {
+  const totalBars = 10;
+  const filledBars = Math.round((progress / 100) * totalBars);
+  const barStr = '█'.repeat(filledBars) + '░'.repeat(totalBars - filledBars);
+  return `[${barStr}] ${progress}%`;
 }
 
 /**
  * Polls the RapidAPI endpoint until a valid link is available.
- * Calls updateCallback with status messages on each attempt.
+ * Calls updateCallback with a text-based progress bar.
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
- * @param {Function} updateCallback - Callback to update status (optional).
+ * @param {Function} updateCallback - Callback to update status.
  * @param {number} maxAttempts - Maximum polling attempts.
  * @param {number} delayMs - Delay between attempts in ms.
- * @returns {Promise<{link: string, title: string}>} - The mp3 download link and title.
+ * @returns {Promise<{ link: string, title: string }>} - The mp3 link and title.
  */
 async function pollForLink(videoId, options, updateCallback, maxAttempts = 10, delayMs = 3000) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`Polling attempt ${attempt}...`);
-    if (updateCallback) {
-      try {
-        await updateCallback(`Attempt ${attempt}: Checking download status...`);
-      } catch (e) {
-        console.error("Error in update callback:", e);
-      }
-    }
     await sleep(delayMs);
     try {
       const pollResponse = await axios.request(options);
-      console.log('Polling response:', JSON.stringify(pollResponse.data));
-      if (updateCallback) {
-        await updateCallback(`Status: ${pollResponse.data.msg}. Progress: ${pollResponse.data.progress || 0}%`);
-      }
-      if (pollResponse.data.link && pollResponse.data.link !== "") {
+      const progressValue = pollResponse.data.progress || 0;
+      const bar = createProgressBar(progressValue);
+      await updateCallback(`ממיר...\n${bar}`);
+
+      if (pollResponse.data.link && pollResponse.data.link !== '') {
         return { link: pollResponse.data.link, title: pollResponse.data.title };
       }
     } catch (pollError) {
-      console.error('Error polling RapidAPI:', pollError);
-      if (updateCallback) {
-        await updateCallback(`Error polling for status: ${pollError.message}`);
-      }
+      console.error('שגיאה בעדכון סטטוס מ-RapidAPI:', pollError);
+      await updateCallback(`שגיאה בעדכון סטטוס: ${pollError.message}`);
     }
   }
-  throw new Error("Link not generated after maximum polling attempts");
+  throw new Error('לא נוצר קישור לאחר מספר ניסיונות מקסימלי');
 }
 
 /**
- * Downloads audio from a YouTube URL via RapidAPI and returns the mp3 link and video title.
- * Accepts an updateCallback to inform about the download status.
+ * Downloads audio from a YouTube URL via RapidAPI and returns the mp3 link and title.
  * @param {string} videoUrl - The YouTube video URL.
- * @param {Function} updateCallback - Callback for status updates (optional).
- * @returns {Promise<{link: string, title: string}>} - The mp3 URL and video title.
+ * @param {Function} updateCallback - Callback for status updates.
+ * @returns {Promise<{ link: string, title: string }>}
  */
 async function processDownload(videoUrl, updateCallback) {
   const videoId = extractVideoId(videoUrl);
   if (!videoId) {
-    throw new Error('Invalid YouTube URL');
+    throw new Error('קישור YouTube לא תקין');
   }
 
   const options = {
@@ -96,21 +96,23 @@ async function processDownload(videoUrl, updateCallback) {
 
   try {
     const response = await axios.request(options);
-    console.log('RapidAPI response:', JSON.stringify(response.data));
-    if (response.data.link && response.data.link !== "") {
+    if (response.data.link && response.data.link !== '') {
       return { link: response.data.link, title: response.data.title };
     }
     if (response.data.status === 'processing') {
       return await pollForLink(videoId, options, updateCallback);
     }
-    throw new Error(`Unexpected response from RapidAPI: ${JSON.stringify(response.data)}`);
+    throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
   } catch (error) {
-    console.error('RapidAPI error:', error);
+    console.error('שגיאה ב-RapidAPI:', error);
     if (updateCallback) {
-      await updateCallback(`Error: ${error.message}`);
+      await updateCallback(`שגיאה: ${error.message}`);
     }
     throw error;
   }
 }
 
-module.exports = { processDownload, extractVideoId };
+module.exports = {
+  processDownload,
+  extractVideoId,
+};

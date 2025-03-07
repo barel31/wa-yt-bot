@@ -13,98 +13,81 @@ const port = process.env.PORT || 3000;
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// When a message is received, validate and offer download options.
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // Validate that the incoming message is a YouTube URL.
   if (!text || !(text.includes('youtube.com') || text.includes('youtu.be'))) {
-    bot.sendMessage(chatId, 'Please send a valid YouTube link.');
+    bot.sendMessage(chatId, 'נא לשלוח קישור YouTube תקין.');
     return;
   }
 
-  // Extract video ID and create a short callback data payload.
   const videoId = extractVideoId(text);
   if (!videoId) {
-    return bot.sendMessage(chatId, 'Could not extract video ID. Please try another link.');
+    return bot.sendMessage(chatId, 'לא ניתן לחלץ את מזהה הווידאו. אנא נסה קישור אחר.');
   }
+
   const callbackData = JSON.stringify({ action: 'download', id: videoId });
   const cancelData = JSON.stringify({ action: 'cancel' });
 
-  // Send an inline keyboard to ask the user how they want to download.
   const inlineKeyboard = {
     inline_keyboard: [
       [
-        { text: 'Download MP3', callback_data: callbackData },
-        { text: 'Cancel', callback_data: cancelData }
+        { text: 'הורד MP3', callback_data: callbackData },
+        { text: 'בטל', callback_data: cancelData }
       ]
     ]
   };
 
-  bot.sendMessage(chatId, 'How would you like to download the video? (Currently only MP3 is available)', {
-    reply_markup: inlineKeyboard
-  });
+  bot.sendMessage(
+    chatId,
+    'איך תרצה להוריד את הווידאו? (כרגע זמין רק MP3)',
+    { reply_markup: inlineKeyboard }
+  );
 });
 
-// Handle callback queries from inline buttons.
 bot.on('callback_query', async (callbackQuery) => {
   let parsed;
   try {
     parsed = JSON.parse(callbackQuery.data);
   } catch (e) {
-    console.error("Error parsing callback data:", e);
-    return bot.answerCallbackQuery(callbackQuery.id, { text: "Invalid selection" });
+    console.error('שגיאה בפיענוח נתוני החזרה:', e);
+    return bot.answerCallbackQuery(callbackQuery.id, { text: 'בחירה לא תקינה' });
   }
 
   const chatId = callbackQuery.message.chat.id;
   const action = parsed.action;
 
   if (action === 'cancel') {
-    bot.answerCallbackQuery(callbackQuery.id, { text: "Cancelled" });
-    bot.sendMessage(chatId, "Download cancelled.");
+    bot.answerCallbackQuery(callbackQuery.id, { text: 'בוטל' });
+    bot.sendMessage(chatId, 'ההורדה בוטלה.');
     return;
   }
 
   if (action === 'download' && parsed.id) {
-    bot.answerCallbackQuery(callbackQuery.id, { text: "Processing download..." });
-
-    // Reconstruct a YouTube URL from the video ID.
+    bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Send an initial status message and capture its message_id for editing.
-    let statusMsg;
-    try {
-      statusMsg = await bot.sendMessage(chatId, 'Processing your request...');
-    } catch (error) {
-      console.error('Error sending initial status message:', error);
-    }
-
-    // Define a callback to update the status message.
+    // Instead of editing the same message, we send each update as a new message.
     const updateStatus = async (newStatus) => {
       try {
-        await bot.editMessageText(newStatus, { chat_id: chatId, message_id: statusMsg.message_id });
+        await bot.sendMessage(chatId, newStatus);
       } catch (error) {
-        console.error('Error updating status message:', error);
+        console.error('שגיאה בשליחת הודעת סטטוס:', error);
       }
     };
 
     try {
-      // Process the download. The result includes both the mp3 URL and the YouTube title.
       const result = await processDownload(videoUrl, updateStatus);
-
-      // Update status before starting the file preparation.
-      await updateStatus('Download complete. Preparing your audio file...');
-
-      // Sanitize the title using a Unicode-aware regex.
+      await updateStatus('ההורדה הושלמה. מכין את קובץ האודיו שלך...');
+      
+      // Unicode-aware filename sanitization.
       const sanitizeFileName = (name) => {
-        // Allow any Unicode letters (\p{L}) or numbers (\p{N}), dashes, underscores, and spaces.
         return name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       };
       const sanitizedTitle = sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      // Download the file locally.
       const response = await axios({
         url: result.link,
         method: 'GET',
@@ -117,28 +100,22 @@ bot.on('callback_query', async (callbackQuery) => {
         writer.on('error', reject);
       });
 
-      // Update status before uploading.
-      await updateStatus('Uploading your file to Telegram, please wait...');
-
-      // Send the audio file with the preserved file name.
-      await bot.sendAudio(chatId, localFilePath, { caption: `Here is your audio file: ${result.title}` });
-
-      // Optionally, update the status message to indicate completion.
-      await updateStatus('File sent successfully.');
-
-      // Clean up the temporary file.
+      await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
+      await bot.sendAudio(chatId, localFilePath, {
+        caption: `הנה קובץ האודיו שלך: ${result.title}`
+      });
+      
+      // Note: No final "הקובץ נשלח בהצלחה" message.
+      
       fs.unlink(localFilePath, (err) => {
-        if (err) {
-          console.error('Error deleting temporary file:', err);
-        }
+        if (err) console.error('שגיאה במחיקת הקובץ הזמני:', err);
       });
     } catch (error) {
-      console.error('Error processing download:', error);
-      await updateStatus('Sorry, there was an error processing your request.');
+      console.error('שגיאה בעיבוד ההורדה:', error);
+      await updateStatus('מצטער, אירעה שגיאה בעיבוד הבקשה שלך.');
     }
   }
 });
-
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
