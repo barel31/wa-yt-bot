@@ -68,12 +68,27 @@ bot.on('callback_query', async (callbackQuery) => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Instead of editing the same message, we send each update as a new message.
+    // Send a progress message which will be updated.
+    let progressMsg;
+    try {
+      progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
+    } catch (error) {
+      console.error('שגיאה בשליחת הודעת סטטוס התחלתית:', error);
+    }
+
+    // Function to update the progress message by editing it.
     const updateStatus = async (newStatus) => {
       try {
-        await bot.sendMessage(chatId, newStatus);
+        await bot.editMessageText(newStatus, {
+          chat_id: chatId,
+          message_id: progressMsg.message_id
+        });
       } catch (error) {
-        console.error('שגיאה בשליחת הודעת סטטוס:', error);
+        if (error && error.message && error.message.includes('message is not modified')) {
+          // Ignore if the content is the same.
+        } else {
+          console.error('שגיאה בעדכון הודעת סטטוס:', error);
+        }
       }
     };
 
@@ -81,7 +96,6 @@ bot.on('callback_query', async (callbackQuery) => {
       const result = await processDownload(videoUrl, updateStatus);
       await updateStatus('ההורדה הושלמה. מכין את קובץ האודיו שלך...');
       
-      // Unicode-aware filename sanitization.
       const sanitizeFileName = (name) => {
         return name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       };
@@ -105,7 +119,7 @@ bot.on('callback_query', async (callbackQuery) => {
         caption: `הנה קובץ האודיו שלך: ${result.title}`
       });
       
-      // Note: No final "הקובץ נשלח בהצלחה" message.
+      // No final success message is sent.
       
       fs.unlink(localFilePath, (err) => {
         if (err) console.error('שגיאה במחיקת הקובץ הזמני:', err);
