@@ -19,7 +19,7 @@ bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // Prevent new downloads if one is already active in this chat.
+  // Prevent multiple downloads in one chat.
   if (activeDownloads[chatId]) {
     bot.sendMessage(chatId, 'יש הורדה פעילה. אנא המתן לסיום ההורדה הנוכחית.');
     return;
@@ -94,7 +94,7 @@ bot.on('callback_query', async callbackQuery => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Send a progress message to be updated
+    // Send a progress message that will be updated.
     let progressMsg;
     try {
       progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
@@ -102,7 +102,7 @@ bot.on('callback_query', async callbackQuery => {
       console.error('שגיאה בשליחת הודעת סטטוס התחלתית:', error);
     }
 
-    // Function to update the progress message (using editMessageText)
+    // Function to update the progress message by editing it.
     const updateStatus = async newStatus => {
       try {
         await bot.editMessageText(newStatus, {
@@ -115,7 +115,7 @@ bot.on('callback_query', async callbackQuery => {
           error.message &&
           error.message.includes('message is not modified')
         ) {
-          // Ignore if unchanged.
+          // Ignore if content hasn't changed.
         } else {
           console.error('שגיאה בעדכון הודעת סטטוס:', error);
         }
@@ -123,11 +123,9 @@ bot.on('callback_query', async callbackQuery => {
     };
 
     try {
-      // Process the download (this polls RapidAPI for the conversion link)
       const result = await processDownload(videoUrl, updateStatus);
       await updateStatus('ההורדה הושלמה. מכין את קובץ האודיו שלך...');
 
-      // Create a safe filename from the video title.
       const sanitizeFileName = name => {
         return name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       };
@@ -135,32 +133,47 @@ bot.on('callback_query', async callbackQuery => {
         sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      // Attempt to download the file.
-      const response = await axios({
-        url: result.link,
-        method: 'GET',
-        responseType: 'stream',
-        validateStatus: status =>
-          (status >= 200 && status < 300) || status === 404,
-      });
+      // Enhanced logging for file download.
+      console.log('Attempting file download from URL:', result.link);
+      // Attempt to download the file
+      try {
+        console.log('Downloading file from:', result.link);
+        const response = await axios({
+          url: result.link,
+          method: 'GET',
+          responseType: 'stream',
+          validateStatus: status =>
+            (status >= 200 && status < 300) || status === 404,
+        });
 
-      if (response.status === 404) {
-        console.error('File not found (404) on download.');
-        await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
+        console.log(
+          `Response status: ${response.status} ${response.statusText}`
+        );
+
+        if (response.status === 404) {
+          console.error('File not found (404) on download.');
+          await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
+          bot.sendMessage(chatId, 'מצטער, לא נמצא הקובץ (שגיאה 404).');
+          activeDownloads[chatId] = false;
+          return;
+        }
+
+        const writer = fs.createWriteStream(localFilePath);
+        response.data.pipe(writer);
+        await new Promise((resolve, reject) => {
+          writer.on('finish', resolve);
+          writer.on('error', reject);
+        });
+      } catch (downloadError) {
+        console.error('Error downloading file:', downloadError.message);
+        await updateStatus('מצטער, שגיאה בהורדת הקובץ.');
         activeDownloads[chatId] = false;
         return;
       }
 
-      const writer = fs.createWriteStream(localFilePath);
-      response.data.pipe(writer);
-      await new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-      });
-
       await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
       await bot.sendAudio(chatId, localFilePath, {
-        caption: `Your audio file: ${result.title}`,
+        caption: `הנה קובץ האודיו שלך: ${result.title}`,
         filename: `${sanitizedTitle}.mp3`,
         contentType: 'audio/mpeg',
       });
@@ -177,7 +190,6 @@ bot.on('callback_query', async callbackQuery => {
       }
     }
   }
-
   // Reset the active download flag for this chat.
   activeDownloads[chatId] = false;
 });
