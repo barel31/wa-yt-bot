@@ -68,7 +68,7 @@ bot.on('callback_query', async (callbackQuery) => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Send a progress message which will be updated.
+    // Send a single progress message that will be updated.
     let progressMsg;
     try {
       progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
@@ -85,7 +85,7 @@ bot.on('callback_query', async (callbackQuery) => {
         });
       } catch (error) {
         if (error && error.message && error.message.includes('message is not modified')) {
-          // Ignore if the content is the same.
+          // Ignore if content hasn't changed.
         } else {
           console.error('שגיאה בעדכון הודעת סטטוס:', error);
         }
@@ -102,24 +102,29 @@ bot.on('callback_query', async (callbackQuery) => {
       const sanitizedTitle = sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      const response = await axios({
-        url: result.link,
-        method: 'GET',
-        responseType: 'stream'
-      });
-      const writer = fs.createWriteStream(localFilePath);
-      response.data.pipe(writer);
-      await new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-      });
+      // Try to download the file.
+      try {
+        const response = await axios({
+          url: result.link,
+          method: 'GET',
+          responseType: 'stream'
+        });
+        const writer = fs.createWriteStream(localFilePath);
+        response.data.pipe(writer);
+        await new Promise((resolve, reject) => {
+          writer.on('finish', resolve);
+          writer.on('error', reject);
+        });
+      } catch (downloadError) {
+        console.error('שגיאה בהורדת הקובץ:', downloadError);
+        await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
+        return;
+      }
 
       await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
       await bot.sendAudio(chatId, localFilePath, {
         caption: `הנה קובץ האודיו שלך: ${result.title}`
       });
-      
-      // No final success message is sent.
       
       fs.unlink(localFilePath, (err) => {
         if (err) console.error('שגיאה במחיקת הקובץ הזמני:', err);
