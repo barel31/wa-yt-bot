@@ -59,7 +59,7 @@ function createProgressBar(progress) {
  * @param {number} delayMs - Delay between attempts in ms.
  * @returns {Promise<{ link: string, title: string }>}
  */
-async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000) {
+async function pollForLink(videoId, options, updateCallback, maxAttempts = 30, delayMs = 6000) {
   let lastStatus = '';
   let queueCount = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

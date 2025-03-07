@@ -15,7 +15,7 @@ const activeDownloads = {};
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-bot.on('message', async (msg) => {
+bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
@@ -32,7 +32,10 @@ bot.on('message', async (msg) => {
 
   const videoId = extractVideoId(text);
   if (!videoId) {
-    return bot.sendMessage(chatId, 'לא ניתן לחלץ את מזהה הווידאו. אנא נסה קישור אחר.');
+    return bot.sendMessage(
+      chatId,
+      'לא ניתן לחלץ את מזהה הווידאו. אנא נסה קישור אחר.'
+    );
   }
 
   const callbackData = JSON.stringify({ action: 'download', id: videoId });
@@ -42,25 +45,25 @@ bot.on('message', async (msg) => {
     inline_keyboard: [
       [
         { text: 'הורד MP3', callback_data: callbackData },
-        { text: 'בטל', callback_data: cancelData }
-      ]
-    ]
+        { text: 'בטל', callback_data: cancelData },
+      ],
+    ],
   };
 
-  bot.sendMessage(
-    chatId,
-    'איך תרצה להוריד את הווידאו? (כרגע זמין רק MP3)',
-    { reply_markup: inlineKeyboard }
-  );
+  bot.sendMessage(chatId, 'איך תרצה להוריד את הווידאו? (כרגע זמין רק MP3)', {
+    reply_markup: inlineKeyboard,
+  });
 });
 
-bot.on('callback_query', async (callbackQuery) => {
+bot.on('callback_query', async callbackQuery => {
   let parsed;
   try {
     parsed = JSON.parse(callbackQuery.data);
   } catch (e) {
     console.error('שגיאה בפיענוח נתוני החזרה:', e);
-    return bot.answerCallbackQuery(callbackQuery.id, { text: 'בחירה לא תקינה' });
+    return bot.answerCallbackQuery(callbackQuery.id, {
+      text: 'בחירה לא תקינה',
+    });
   }
 
   const chatId = callbackQuery.message.chat.id;
@@ -69,7 +72,10 @@ bot.on('callback_query', async (callbackQuery) => {
 
   // Remove inline buttons immediately to prevent spamming.
   try {
-    await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId });
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      { chat_id: chatId, message_id: messageId }
+    );
   } catch (error) {
     console.error('שגיאה בעת הסרת הלחצנים:', error.message);
   }
@@ -97,14 +103,18 @@ bot.on('callback_query', async (callbackQuery) => {
     }
 
     // Function to update the progress message (using editMessageText)
-    const updateStatus = async (newStatus) => {
+    const updateStatus = async newStatus => {
       try {
         await bot.editMessageText(newStatus, {
           chat_id: chatId,
-          message_id: progressMsg.message_id
+          message_id: progressMsg.message_id,
         });
       } catch (error) {
-        if (error && error.message && error.message.includes('message is not modified')) {
+        if (
+          error &&
+          error.message &&
+          error.message.includes('message is not modified')
+        ) {
           // Ignore if unchanged.
         } else {
           console.error('שגיאה בעדכון הודעת סטטוס:', error);
@@ -118,10 +128,11 @@ bot.on('callback_query', async (callbackQuery) => {
       await updateStatus('ההורדה הושלמה. מכין את קובץ האודיו שלך...');
 
       // Create a safe filename from the video title.
-      const sanitizeFileName = (name) => {
+      const sanitizeFileName = name => {
         return name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       };
-      const sanitizedTitle = sanitizeFileName(result.title) || `audio_${Date.now()}`;
+      const sanitizedTitle =
+        sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
       // Attempt to download the file.
@@ -129,18 +140,17 @@ bot.on('callback_query', async (callbackQuery) => {
         url: result.link,
         method: 'GET',
         responseType: 'stream',
-        validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
+        validateStatus: status =>
+          (status >= 200 && status < 300) || status === 404,
       });
-      
-      // If the file isn't found, update status and notify the user.
+
       if (response.status === 404) {
         console.error('File not found (404) on download.');
         await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
-        bot.sendMessage(chatId, 'מצטער, לא נמצא הקובץ (שגיאה 404).');
         activeDownloads[chatId] = false;
         return;
       }
-      
+
       const writer = fs.createWriteStream(localFilePath);
       response.data.pipe(writer);
       await new Promise((resolve, reject) => {
@@ -150,10 +160,12 @@ bot.on('callback_query', async (callbackQuery) => {
 
       await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
       await bot.sendAudio(chatId, localFilePath, {
-        caption: `הנה קובץ האודיו שלך: ${result.title}`
+        caption: `Your audio file: ${result.title}`,
+        filename: `${sanitizedTitle}.mp3`,
+        contentType: 'audio/mpeg',
       });
-      
-      fs.unlink(localFilePath, (err) => {
+
+      fs.unlink(localFilePath, err => {
         if (err) console.error('שגיאה במחיקת הקובץ הזמני:', err);
       });
     } catch (error) {
