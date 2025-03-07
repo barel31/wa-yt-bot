@@ -133,15 +133,19 @@ bot.on('callback_query', async callbackQuery => {
         sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      // Enhanced logging for file download.
-      console.log('Attempting file download from URL:', result.link);
-      // Attempt to download the file
+      /// Attempt to download the file with a custom User-Agent header.
       try {
-        console.log('Downloading file from:', result.link);
+        console.log('Attempting file download from URL:', result.link);
         const response = await axios({
           url: result.link,
           method: 'GET',
           responseType: 'stream',
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+              'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+              'Chrome/115.0.0.0 Safari/537.36',
+          },
           validateStatus: status =>
             (status >= 200 && status < 300) || status === 404,
         });
@@ -153,7 +157,6 @@ bot.on('callback_query', async callbackQuery => {
         if (response.status === 404) {
           console.error('File not found (404) on download.');
           await updateStatus('מצטער, לא נמצא הקובץ (שגיאה 404).');
-          bot.sendMessage(chatId, 'מצטער, לא נמצא הקובץ (שגיאה 404).');
           activeDownloads[chatId] = false;
           return;
         }
