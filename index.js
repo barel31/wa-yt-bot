@@ -11,14 +11,28 @@ const { processDownload, extractVideoId, createProgressBar, sleep } = require('.
 
 // --- Redis Setup ---
 const redis = require('redis');
-const redisClient = redis.createClient({
-  url: process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`
-});
-if (process.env.REDIS_PASSWORD) {
-  redisClient.auth(process.env.REDIS_PASSWORD).catch(console.error);
+// --- Redis Setup ---
+let redisClient;
+if (process.env.NODE_ENV === 'development') {
+  console.log('Running in development mode – Redis caching is disabled.');
+  // Create a dummy Redis client with no-op functions.
+  redisClient = {
+    get: async () => null,
+    setEx: async () => {},
+  };
+} else {
+  const redis = require('redis');
+  redisClient = redis.createClient({
+    url: process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`
+  });
+  if (process.env.REDIS_PASSWORD) {
+    // The redis package v4 supports including the password in the URL,
+    // so this is optional if using REDIS_URL.
+  }
+  redisClient.on('error', err => console.error('Redis error:', err));
+  redisClient.connect().catch(console.error);
 }
-redisClient.on('error', err => console.error('Redis error:', err));
-redisClient.connect().catch(console.error);
+
 
 // Express app and port.
 const app = express();
@@ -226,13 +240,15 @@ bot.on('callback_query', async (callbackQuery) => {
             headers: {
               'User-Agent': `${process.env.RAPIDAPI_USERNAME} Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36`,
               'x-run': xRunHeader,
-              'Referer': 'https://www.youtube.com/'
+              'Referer': 'https://www.youtube.com/',
+              'Origin': 'https://www.youtube.com'
             },
             validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
           });
           console.log(`Response status: ${response.status} ${response.statusText}`);
           return response;
         };
+        
 
         let response = await attemptDownload();
         if (response.status === 404) {
