@@ -32,7 +32,7 @@ const activeDownloads = {};
 // Initialize Telegram bot without polling.
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token);
-const webhookUrl =  process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL; // e.g., "https://your-app.onrender.com/webhook"
+const webhookUrl =  process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL + '/webhook'; // e.g., "https://your-app.onrender.com/webhook"
 
 // Set webhook using the Telegram Bot API.
 bot.setWebHook(webhookUrl)
