@@ -68,7 +68,6 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
       const pollResponse = await axios.request(options);
       const progressValue = pollResponse.data.progress || 0;
       lastStatus = pollResponse.data.msg || '';
-      const status = (pollResponse.data.status || "").toLowerCase();
       
       if (lastStatus.toLowerCase().includes("in queue")) {
         queueCount++;
@@ -76,19 +75,39 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
         queueCount = 0;
       }
       
-      // Use a shorter version of status text.
+      // Use a shorter version of status text to avoid message-too-long errors.
       const shortStatus = lastStatus.length > 100 ? lastStatus.substring(0, 100) + '...' : lastStatus;
       await updateCallback(`ממיר...\n${createProgressBar(progressValue)}\nסטטוס: ${shortStatus}`);
       
+      const status = (pollResponse.data.status || "").trim().toLowerCase();
       if (status === 'fail') {
         throw new Error(pollResponse.data.msg);
       }
-      
-      if (pollResponse.data.link && pollResponse.data.link !== '') {
-        return { link: pollResponse.data.link, title: pollResponse.data.title };
+      if (status === 'ok') {
+        const title = pollResponse.data.title;
+        let link = "";
+        // For mp3, choose from adaptiveFormats.
+        if (options.url.includes('mp36')) {
+          if (pollResponse.data.adaptiveFormats && Array.isArray(pollResponse.data.adaptiveFormats)) {
+            const audioFormat = pollResponse.data.adaptiveFormats.find(f => f.mimeType && f.mimeType.includes("audio"));
+            if (audioFormat && audioFormat.url) {
+              link = audioFormat.url;
+            }
+          }
+        } else {
+          // For mp4, choose from formats.
+          if (pollResponse.data.formats && Array.isArray(pollResponse.data.formats)) {
+            const videoFormat = pollResponse.data.formats.find(f => f.mimeType && f.mimeType.includes("mp4"));
+            if (videoFormat && videoFormat.url) {
+              link = videoFormat.url;
+            }
+          }
+        }
+        if (link) return { link, title };
+        throw new Error("לא נמצא קישור להמרה עבור הפורמט המבוקש");
       }
       
-      if (queueCount >= 5) {
+      if (status === 'processing' && queueCount >= 5) {
         throw new Error("Conversion stuck in queue");
       }
     } catch (pollError) {
@@ -108,13 +127,21 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
  * @param {string} [format='mp3'] - The desired format ("mp3" or "mp4").
  * @returns {Promise<{ link: string, title: string }>}
  */
+/**
+ * Downloads audio/video from a YouTube URL via RapidAPI.
+ * Accepts a "format" parameter ("mp3" or "mp4").
+ * @param {string} videoUrl - The YouTube video URL.
+ * @param {Function} updateCallback - Callback for status updates.
+ * @param {string} [format='mp3'] - The desired format ("mp3" or "mp4").
+ * @returns {Promise<{ link: string, title: string }>}
+ */
 async function processDownload(videoUrl, updateCallback, format = 'mp3') {
   const videoId = extractVideoId(videoUrl);
   if (!videoId) {
     throw new Error('קישור YouTube לא תקין');
   }
 
-  // Choose endpoint and host based on format.
+  // Choose the endpoint and host based on format.
   const endpoint = format === 'mp4'
     ? 'https://youtube-mp4.p.rapidapi.com/dl'
     : 'https://youtube-mp36.p.rapidapi.com/dl';
@@ -134,26 +161,44 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
 
   try {
     const response = await axios.request(options);
-    const status = (response.data.status || "").toLowerCase();
+    const status = (response.data.status || "").trim().toLowerCase();
+
     if (status === 'fail') {
       await updateCallback(`ממיר...\n${createProgressBar(response.data.progress || 0)}\nסטטוס: ${response.data.msg}`);
       throw new Error(response.data.msg);
     }
     
-    if (
-      response.data.status &&
-      response.data.status.toLowerCase() === 'ok' &&
-      response.data.link &&
-      response.data.link !== ''
-    ) {
-      return { link: response.data.link, title: response.data.title };
+    if (status === 'ok') {
+      const title = response.data.title;
+      // For mp3, first try the top-level link. If not present, try adaptiveFormats.
+      let link = response.data.link && response.data.link !== '' 
+        ? response.data.link 
+        : "";
+      if (format === 'mp3' && !link) {
+        if (response.data.adaptiveFormats && Array.isArray(response.data.adaptiveFormats)) {
+          const audioFormat = response.data.adaptiveFormats.find(f => f.mimeType && f.mimeType.includes("audio"));
+          if (audioFormat && audioFormat.url) {
+            link = audioFormat.url;
+          }
+        }
+      } else if (format === 'mp4') {
+        if (response.data.formats && Array.isArray(response.data.formats)) {
+          const videoFormat = response.data.formats.find(f => f.mimeType && f.mimeType.includes("mp4"));
+          if (videoFormat && videoFormat.url) {
+            link = videoFormat.url;
+          }
+        }
+      }
+      
+      if (!link) throw new Error("לא נמצא קישור להמרה עבור הפורמט המבוקש");
+      return { link, title };
     }
     
     if (status === 'processing') {
       return await pollForLink(videoId, options, updateCallback);
     }
     
-    throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
+    throw new Error("תגובה לא צפויה מ-RapidAPI");
   } catch (error) {
     console.error('RapidAPI error:', error.message);
     if (updateCallback) {
@@ -162,6 +207,7 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
     throw error;
   }
 }
+
 
 module.exports = {
   processDownload,

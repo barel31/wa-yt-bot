@@ -9,6 +9,18 @@ const AWS = require('aws-sdk');
 const crypto = require('crypto');
 const { processDownload, extractVideoId, createProgressBar, sleep } = require('./download');
 
+// --- Redis Setup ---
+const redis = require('redis');
+const redisClient = redis.createClient({
+  url: process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`
+});
+if (process.env.REDIS_PASSWORD) {
+  redisClient.auth(process.env.REDIS_PASSWORD).catch(console.error);
+}
+redisClient.on('error', err => console.error('Redis error:', err));
+redisClient.connect().catch(console.error);
+
+// Express app and port.
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -33,9 +45,8 @@ const xRunHeader = rapidapiUsername
   ? crypto.createHash('md5').update(rapidapiUsername).digest('hex')
   : '';
 
-// --- Simple in-memory rate limiter and conversion cache ---
+// --- Simple in-memory rate limiter ---
 const rateLimitCache = {}; // { chatId: { count, lastRequest } }
-const conversionCache = {}; // { `${videoId}-${format}`: { s3Url, title, timestamp } }
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 3;
 
@@ -75,10 +86,12 @@ app.post('/webhook', (req, res) => {
   res.sendStatus(200);
 });
 
-// Helper function to trim message text to Telegram's limit (4096 chars).
+// Helper function to trim message text to Telegram's limit.
 const MAX_MESSAGE_LENGTH = 4096;
 function trimMessage(text) {
-  return text.length > MAX_MESSAGE_LENGTH ? text.substring(0, MAX_MESSAGE_LENGTH - 3) + '...' : text;
+  return text.length > MAX_MESSAGE_LENGTH
+    ? text.substring(0, MAX_MESSAGE_LENGTH - 3) + '...'
+    : text;
 }
 
 // --- Message Handler ---
@@ -157,10 +170,11 @@ bot.on('callback_query', async (callbackQuery) => {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
     const videoUrl = `https://youtu.be/${parsed.id}`;
 
-    // Check cache first.
+    // Use Redis cache to check for existing conversion.
     const cacheKey = `${parsed.id}-${format}`;
-    if (conversionCache[cacheKey]) {
-      const cached = conversionCache[cacheKey];
+    let cachedData = await redisClient.get(cacheKey);
+    if (cachedData) {
+      const cached = JSON.parse(cachedData);
       bot.sendMessage(chatId, `הקובץ נמצא במטמון: ${cached.title}`);
       if (format === 'mp4') {
         await bot.sendVideo(chatId, cached.s3Url, { caption: `הנה קובץ הווידאו שלך: ${cached.title}` });
@@ -210,10 +224,9 @@ bot.on('callback_query', async (callbackQuery) => {
             method: 'GET',
             responseType: 'stream',
             headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-                            'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-                            'Chrome/115.0.0.0 Safari/537.36',
-              'x-run': xRunHeader
+              'User-Agent': `${process.env.RAPIDAPI_USERNAME} Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36`,
+              'x-run': xRunHeader,
+              'Referer': 'https://www.youtube.com/'
             },
             validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
           });
@@ -277,7 +290,9 @@ bot.on('callback_query', async (callbackQuery) => {
         });
       }
       
-      conversionCache[cacheKey] = { s3Url, title: result.title, timestamp: Date.now() };
+      // Store conversion result in Redis for 24 hours.
+      await redisClient.setEx(cacheKey, 86400, JSON.stringify({ s3Url, title: result.title }));
+      
       fs.unlink(localFilePath, (err) => {
         if (err) console.error('שגיאה במחיקת הקובץ הזמני:', err);
       });
