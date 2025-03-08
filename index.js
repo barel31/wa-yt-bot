@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
@@ -12,8 +11,10 @@ const { processDownload, extractVideoId } = require('./download');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Parse incoming JSON requests
-app.use(bodyParser.json());
+// Ping endpoint to keep the instance awake.
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
 
 // Initialize AWS S3
 const s3 = new AWS.S3({
@@ -22,25 +23,28 @@ const s3 = new AWS.S3({
   region: process.env.AWS_REGION,
 });
 
-// Compute MD5 hash for x-run header from RapidAPI username.
+// Compute MD5 hash of your RapidAPI username for x-run header.
 const rapidapiUsername = process.env.RAPIDAPI_USERNAME;
-const xRunHeader = rapidapiUsername ? crypto.createHash('md5').update(rapidapiUsername).digest('hex') : '';
+const xRunHeader = rapidapiUsername
+  ? crypto.createHash('md5').update(rapidapiUsername).digest('hex')
+  : '';
 
-// Global tracker for active downloads per chat.
 const activeDownloads = {};
+
+// For webhook mode, we use the webhook URL (ensure it's set to HTTPS on an allowed port)
+const webhookUrl = (process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL) + '/webhook';
 
 // Initialize Telegram bot without polling.
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token);
-const webhookUrl =  process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL + '/webhook'; // e.g., "https://your-app.onrender.com/webhook"
-
-// Set webhook using the Telegram Bot API.
 bot.setWebHook(webhookUrl)
-  .then(() => console.log('Webhook set successfully'))
+  .then(() => console.log('Webhook set successfully:', webhookUrl))
   .catch(err => console.error('Error setting webhook:', err));
 
-// This endpoint receives updates from Telegram.
+// Express endpoint to receive Telegram webhook updates.
+app.use(express.json());
 app.post('/webhook', (req, res) => {
+  console.log('Update received:', req.body);
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
@@ -91,7 +95,7 @@ bot.on('callback_query', async (callbackQuery) => {
   const messageId = callbackQuery.message.message_id;
   const action = parsed.action;
 
-  // Remove inline buttons to prevent spam.
+  // Remove inline keyboard to prevent spam.
   try {
     await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId });
   } catch (error) {
