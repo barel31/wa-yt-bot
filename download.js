@@ -24,7 +24,7 @@ function extractVideoId(url) {
     }
     return null;
   } catch (error) {
-    console.error('Error extracting video ID:', error);
+    console.error('שגיאה בחילוץ מזהה הווידאו:', error);
     return null;
   }
 }
@@ -50,16 +50,18 @@ function createProgressBar(progress) {
 }
 
 /**
- * Polls a given endpoint until a valid conversion link is available.
+ * Polls the RapidAPI endpoint until a valid conversion link is available.
  * Updates status using updateCallback.
+ *
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
  * @param {Function} updateCallback - Callback to update status.
  * @param {number} maxAttempts - Maximum polling attempts.
  * @param {number} delayMs - Delay between attempts in ms.
+ * @param {number} maxQueueCount - Maximum allowed consecutive "in queue" responses.
  * @returns {Promise<{ link: string, title: string }>}
  */
-async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000) {
+async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000, maxQueueCount = 5) {
   let lastStatus = '';
   let queueCount = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -69,34 +71,26 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
       const progressValue = pollResponse.data.progress || 0;
       lastStatus = pollResponse.data.msg || '';
       const status = (pollResponse.data.status || "").toLowerCase();
-      
+
       if (lastStatus.toLowerCase().includes("in queue")) {
         queueCount++;
       } else {
         queueCount = 0;
       }
       
+      // Use a shorter version of status text.
       const shortStatus = lastStatus.length > 100 ? lastStatus.substring(0, 100) + '...' : lastStatus;
       await updateCallback(`ממיר...\n${createProgressBar(progressValue)}\nסטטוס: ${shortStatus}`);
-      
-      // For the video API, the polling response doesn't necessarily include a "status" field.
-      // We check if the "file" field is non-empty.
-      if (pollResponse.data.file && pollResponse.data.file !== "") {
-        // Retrieve video info to get the title.
-        const infoOptions = {
-          method: 'GET',
-          url: `https://youtube-video-fast-downloader-24-7.p.rapidapi.com/get-video-info/${videoId}`,
-          headers: {
-            'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-            'x-rapidapi-host': 'youtube-video-fast-downloader-24-7.p.rapidapi.com',
-          },
-        };
-        const infoResponse = await axios.request(infoOptions);
-        const title = infoResponse.data.title || 'No Title';
-        return { link: pollResponse.data.file, title };
+
+      if (status === 'fail') {
+        throw new Error(pollResponse.data.msg);
       }
       
-      if (queueCount >= 5) {
+      if (pollResponse.data.link && pollResponse.data.link !== '') {
+        return { link: pollResponse.data.link, title: pollResponse.data.title };
+      }
+      
+      if (queueCount >= maxQueueCount) {
         throw new Error("Conversion stuck in queue");
       }
     } catch (pollError) {
@@ -112,6 +106,7 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
  * Downloads audio/video from a YouTube URL via RapidAPI.
  * For MP3 conversions, uses the youtube-mp36 endpoint.
  * For MP4 (video) conversions, uses the youtube-video-fast-downloader-24-7 API.
+ *
  * @param {string} videoUrl - The YouTube video URL.
  * @param {Function} updateCallback - Callback for status updates.
  * @param {string} [format='mp3'] - The desired format ("mp3" or "mp4").
@@ -144,6 +139,7 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
         await updateCallback(`ממיר...\n${createProgressBar(response.data.progress || 0)}\nסטטוס: ${response.data.msg}`);
         throw new Error(response.data.msg);
       }
+      
       if (
         response.data.status &&
         response.data.status.toLowerCase() === 'ok' &&
@@ -152,9 +148,12 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
       ) {
         return { link: response.data.link, title: response.data.title };
       }
+      
       if (status === 'processing') {
-        return await pollForLink(videoId, options, updateCallback);
+        // Increase polling attempts and allowed queue count for mp3 conversion.
+        return await pollForLink(videoId, options, updateCallback, 40, 5000, 20);
       }
+      
       throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
     } catch (error) {
       console.error('RapidAPI error:', error.message);
