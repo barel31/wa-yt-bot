@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
@@ -11,6 +12,9 @@ const { processDownload, extractVideoId } = require('./download');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Parse incoming JSON requests
+app.use(bodyParser.json());
+
 // Initialize AWS S3
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -18,15 +22,28 @@ const s3 = new AWS.S3({
   region: process.env.AWS_REGION,
 });
 
-// Compute MD5 hash of your RapidAPI username (Method 2)
+// Compute MD5 hash for x-run header from RapidAPI username.
 const rapidapiUsername = process.env.RAPIDAPI_USERNAME;
 const xRunHeader = rapidapiUsername ? crypto.createHash('md5').update(rapidapiUsername).digest('hex') : '';
 
+// Global tracker for active downloads per chat.
 const activeDownloads = {};
 
-// Initialize Telegram bot with polling.
+// Initialize Telegram bot without polling.
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
+const bot = new TelegramBot(token);
+const webhookUrl =  process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL; // e.g., "https://your-app.onrender.com/webhook"
+
+// Set webhook using the Telegram Bot API.
+bot.setWebHook(webhookUrl)
+  .then(() => console.log('Webhook set successfully'))
+  .catch(err => console.error('Error setting webhook:', err));
+
+// This endpoint receives updates from Telegram.
+app.post('/webhook', (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -74,6 +91,7 @@ bot.on('callback_query', async (callbackQuery) => {
   const messageId = callbackQuery.message.message_id;
   const action = parsed.action;
 
+  // Remove inline buttons to prevent spam.
   try {
     await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId });
   } catch (error) {
@@ -123,7 +141,6 @@ bot.on('callback_query', async (callbackQuery) => {
       const sanitizedTitle = sanitizeFileName(result.title) || `audio_${Date.now()}`;
       const localFilePath = path.join(__dirname, `${sanitizedTitle}.mp3`);
 
-      // File download with retry on 404, including x-run header.
       async function downloadFile(url, localFilePath, updateStatus) {
         const attemptDownload = async () => {
           console.log("Attempting file download from URL:", url);
@@ -135,7 +152,7 @@ bot.on('callback_query', async (callbackQuery) => {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
                             'AppleWebKit/537.36 (KHTML, like Gecko) ' +
                             'Chrome/115.0.0.0 Safari/537.36',
-              'x-run': xRunHeader  // custom header per RapidAPI whitelist method
+              'x-run': xRunHeader
             },
             validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
           });
@@ -206,6 +223,7 @@ bot.on('callback_query', async (callbackQuery) => {
   activeDownloads[chatId] = false;
 });
 
+// Start the Express server.
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
