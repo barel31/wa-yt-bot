@@ -24,7 +24,7 @@ function extractVideoId(url) {
     }
     return null;
   } catch (error) {
-    console.error('שגיאה בחילוץ מזהה הווידאו:', error);
+    console.error('Error extracting video ID:', error);
     return null;
   }
 }
@@ -50,7 +50,7 @@ function createProgressBar(progress) {
 }
 
 /**
- * Polls the RapidAPI endpoint until a valid conversion link is available.
+ * Polls a given endpoint until a valid conversion link is available.
  * Updates status using updateCallback.
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
@@ -76,16 +76,24 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
         queueCount = 0;
       }
       
-      // Use a shorter version of status text.
       const shortStatus = lastStatus.length > 100 ? lastStatus.substring(0, 100) + '...' : lastStatus;
       await updateCallback(`ממיר...\n${createProgressBar(progressValue)}\nסטטוס: ${shortStatus}`);
       
-      if (status === 'fail') {
-        throw new Error(pollResponse.data.msg);
-      }
-      
-      if (pollResponse.data.link && pollResponse.data.link !== '') {
-        return { link: pollResponse.data.link, title: pollResponse.data.title };
+      // For the video API, the polling response doesn't necessarily include a "status" field.
+      // We check if the "file" field is non-empty.
+      if (pollResponse.data.file && pollResponse.data.file !== "") {
+        // Retrieve video info to get the title.
+        const infoOptions = {
+          method: 'GET',
+          url: `https://youtube-video-fast-downloader-24-7.p.rapidapi.com/get-video-info/${videoId}`,
+          headers: {
+            'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+            'x-rapidapi-host': 'youtube-video-fast-downloader-24-7.p.rapidapi.com',
+          },
+        };
+        const infoResponse = await axios.request(infoOptions);
+        const title = infoResponse.data.title || 'No Title';
+        return { link: pollResponse.data.file, title };
       }
       
       if (queueCount >= 5) {
@@ -102,7 +110,8 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
 
 /**
  * Downloads audio/video from a YouTube URL via RapidAPI.
- * Accepts a "format" parameter ("mp3" or "mp4").
+ * For MP3 conversions, uses the youtube-mp36 endpoint.
+ * For MP4 (video) conversions, uses the youtube-video-fast-downloader-24-7 API.
  * @param {string} videoUrl - The YouTube video URL.
  * @param {Function} updateCallback - Callback for status updates.
  * @param {string} [format='mp3'] - The desired format ("mp3" or "mp4").
@@ -113,73 +122,98 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
   if (!videoId) {
     throw new Error('קישור YouTube לא תקין');
   }
-
-  // Choose endpoint and host based on format.
-  const endpoint = format === 'mp4'
-    ? 'https://youtube-mp4.p.rapidapi.com/dl'
-    : 'https://youtube-mp36.p.rapidapi.com/dl';
-  const host = format === 'mp4'
-    ? process.env.RAPIDAPI_HOST_MP4 || 'youtube-mp4.p.rapidapi.com'
-    : process.env.RAPIDAPI_HOST || 'youtube-mp36.p.rapidapi.com';
-
-  const options = {
-    method: 'GET',
-    url: endpoint,
-    params: { id: videoId },
-    headers: {
-      'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-      'x-rapidapi-host': host,
-    },
-  };
-
-  try {
-    const response = await axios.request(options);
-    const status = (response.data.status || "").toLowerCase();
-
-    if (status === 'fail') {
-      await updateCallback(`ממיר...\n${createProgressBar(response.data.progress || 0)}\nסטטוס: ${response.data.msg}`);
-      throw new Error(response.data.msg);
-    }
-
-    if (status === 'ok') {
-      const title = response.data.title;
-      let link = "";
-      if (format === 'mp3') {
-        // For mp3, use the top-level "link" if available.
-        if (response.data.link && response.data.link !== '') {
-          link = response.data.link;
-        } else if (response.data.adaptiveFormats && Array.isArray(response.data.adaptiveFormats)) {
-          const audioFormat = response.data.adaptiveFormats.find(f => f.mimeType && f.mimeType.includes("audio") && f.url);
-          if (audioFormat && audioFormat.url) {
-            link = audioFormat.url;
-          }
-        }
-      } else if (format === 'mp4') {
-        if (response.data.formats && Array.isArray(response.data.formats)) {
-          const videoFormat = response.data.formats.find(f => f.mimeType && f.mimeType.includes("mp4") && f.url);
-          if (videoFormat && videoFormat.url) {
-            link = videoFormat.url;
-          }
-        }
+  
+  if (format === 'mp3') {
+    // Use the existing mp3 endpoint.
+    const endpoint = 'https://youtube-mp36.p.rapidapi.com/dl';
+    const host = process.env.RAPIDAPI_HOST || 'youtube-mp36.p.rapidapi.com';
+    const options = {
+      method: 'GET',
+      url: endpoint,
+      params: { id: videoId },
+      headers: {
+        'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+        'x-rapidapi-host': host,
+      },
+    };
+    
+    try {
+      const response = await axios.request(options);
+      const status = (response.data.status || "").toLowerCase();
+      if (status === 'fail') {
+        await updateCallback(`ממיר...\n${createProgressBar(response.data.progress || 0)}\nסטטוס: ${response.data.msg}`);
+        throw new Error(response.data.msg);
       }
-      if (!link) throw new Error("לא נמצא קישור להמרה עבור הפורמט המבוקש");
-      return { link, title };
+      if (
+        response.data.status &&
+        response.data.status.toLowerCase() === 'ok' &&
+        response.data.link &&
+        response.data.link !== ''
+      ) {
+        return { link: response.data.link, title: response.data.title };
+      }
+      if (status === 'processing') {
+        return await pollForLink(videoId, options, updateCallback);
+      }
+      throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
+    } catch (error) {
+      console.error('RapidAPI error:', error.message);
+      if (updateCallback) {
+        await updateCallback(`שגיאה: ${error.message}`);
+      }
+      throw error;
     }
-
-    if (status === 'processing') {
-      return await pollForLink(videoId, options, updateCallback);
+  } else if (format === 'mp4') {
+    // Use the new video download API.
+    const endpoint = `https://youtube-video-fast-downloader-24-7.p.rapidapi.com/download_video/${videoId}`;
+    const quality = process.env.DEFAULT_VIDEO_QUALITY_ID || 137;
+    const options = {
+      method: 'GET',
+      url: endpoint,
+      params: { quality },
+      headers: {
+        'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+        'x-rapidapi-host': 'youtube-video-fast-downloader-24-7.p.rapidapi.com',
+      },
+    };
+    
+    try {
+      let response = await axios.request(options);
+      let fileUrl = response.data.file;
+      let attempts = 0;
+      while ((!fileUrl || fileUrl === "") && attempts < 20) {
+        await sleep(5000);
+        await updateCallback(`ממיר... (ניסיון ${attempts + 1})`);
+        response = await axios.request(options);
+        fileUrl = response.data.file;
+        attempts++;
+      }
+      if (!fileUrl || fileUrl === "") {
+        throw new Error(`לא נוצר קישור להורדה לאחר ${attempts} ניסיונות.`);
+      }
+      // Get video info to obtain the title.
+      const infoOptions = {
+        method: 'GET',
+        url: `https://youtube-video-fast-downloader-24-7.p.rapidapi.com/get-video-info/${videoId}`,
+        headers: {
+          'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+          'x-rapidapi-host': 'youtube-video-fast-downloader-24-7.p.rapidapi.com',
+        },
+      };
+      const infoResponse = await axios.request(infoOptions);
+      const title = infoResponse.data.title || 'No Title';
+      return { link: fileUrl, title };
+    } catch (error) {
+      console.error('RapidAPI error:', error.message);
+      if (updateCallback) {
+        await updateCallback(`שגיאה: ${error.message}`);
+      }
+      throw error;
     }
-
-    throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
-  } catch (error) {
-    console.error('RapidAPI error:', error.message);
-    if (updateCallback) {
-      await updateCallback(`שגיאה: ${error.message}`);
-    }
-    throw error;
+  } else {
+    throw new Error("Unsupported format. Use 'mp3' or 'mp4'.");
   }
 }
-
 
 module.exports = {
   processDownload,
