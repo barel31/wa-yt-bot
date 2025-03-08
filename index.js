@@ -232,22 +232,25 @@ bot.on('callback_query', async (callbackQuery) => {
 
       async function downloadFile(url, localFilePath, updateStatus) {
         const attemptDownload = async () => {
-          console.log("Attempting file download from URL:", url);
+          const headers = {
+            'User-Agent': `${process.env.RAPIDAPI_USERNAME} Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36`,
+            'x-run': xRunHeader,
+            'Referer': 'https://www.youtube.com/',
+            'Origin': 'https://www.youtube.com',
+            'Accept': '*/*'
+          };
+          console.log("Attempting file download with headers:", headers);
           const response = await axios({
             url,
             method: 'GET',
             responseType: 'stream',
-            headers: {
-              'User-Agent': `${process.env.RAPIDAPI_USERNAME} Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36`,
-              'x-run': xRunHeader,
-              'Referer': 'https://www.youtube.com/',
-              'Origin': 'https://www.youtube.com'
-            },
+            headers,
             validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
           });
           console.log(`Response status: ${response.status} ${response.statusText}`);
           return response;
         };
+        
         
 
         let response = await attemptDownload();
