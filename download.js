@@ -39,7 +39,7 @@ function sleep(ms) {
 }
 
 /**
- * Creates a simple text-based progress bar.
+ * Creates a text-based progress bar.
  * Example: 40% -> [████░░░░░░] 40%
  */
 function createProgressBar(progress) {
@@ -51,7 +51,7 @@ function createProgressBar(progress) {
 
 /**
  * Polls the RapidAPI endpoint until a valid conversion link is available.
- * Updates status using updateCallback.
+ * Also checks for cancellation via cancellationCheck.
  *
  * @param {string} videoId - The YouTube video ID.
  * @param {object} options - Axios request options.
@@ -59,29 +59,32 @@ function createProgressBar(progress) {
  * @param {number} maxAttempts - Maximum polling attempts.
  * @param {number} delayMs - Delay between attempts in ms.
  * @param {number} maxQueueCount - Maximum allowed consecutive "in queue" responses.
+ * @param {Function} [cancellationCheck] - Function that returns true if the download was canceled.
  * @returns {Promise<{ link: string, title: string }>}
  */
-async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000, maxQueueCount = 5) {
+async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, delayMs = 5000, maxQueueCount = 5, cancellationCheck) {
   let lastStatus = '';
   let queueCount = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (cancellationCheck && cancellationCheck()) {
+      throw new Error('הורדה בוטלה על ידי המשתמש');
+    }
     await sleep(delayMs);
     try {
       const pollResponse = await axios.request(options);
-      const progressValue = pollResponse.data.progress || 0;
+      const progressValue = pollResponse.data.progress || Math.min(100, Math.round((attempt / maxAttempts) * 100));
       lastStatus = pollResponse.data.msg || '';
       const status = (pollResponse.data.status || "").toLowerCase();
-
+      
       if (lastStatus.toLowerCase().includes("in queue")) {
         queueCount++;
       } else {
         queueCount = 0;
       }
       
-      // Use a shorter version of status text.
       const shortStatus = lastStatus.length > 100 ? lastStatus.substring(0, 100) + '...' : lastStatus;
       await updateCallback(`ממיר...\n${createProgressBar(progressValue)}\nסטטוס: ${shortStatus}`);
-
+      
       if (status === 'fail') {
         throw new Error(pollResponse.data.msg);
       }
@@ -105,21 +108,23 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
 /**
  * Downloads audio/video from a YouTube URL via RapidAPI.
  * For MP3 conversions, uses the youtube-mp36 endpoint.
- * For MP4 (video) conversions, uses the youtube-video-fast-downloader-24-7 API.
+ * For MP4 conversions, uses the youtube-video-fast-downloader-24-7 API.
+ * Accepts an optional cancellationCheck callback.
  *
  * @param {string} videoUrl - The YouTube video URL.
  * @param {Function} updateCallback - Callback for status updates.
  * @param {string} [format='mp3'] - The desired format ("mp3" or "mp4").
+ * @param {string|null} [quality=null] - For MP4, the desired quality id.
+ * @param {Function} [cancellationCheck] - Function to check for cancellation.
  * @returns {Promise<{ link: string, title: string }>}
  */
-async function processDownload(videoUrl, updateCallback, format = 'mp3') {
+async function processDownload(videoUrl, updateCallback, format = 'mp3', quality = null, cancellationCheck) {
   const videoId = extractVideoId(videoUrl);
   if (!videoId) {
     throw new Error('קישור YouTube לא תקין');
   }
   
   if (format === 'mp3') {
-    // Use the existing mp3 endpoint.
     const endpoint = 'https://youtube-mp36.p.rapidapi.com/dl';
     const host = process.env.RAPIDAPI_HOST || 'youtube-mp36.p.rapidapi.com';
     const options = {
@@ -140,18 +145,12 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
         throw new Error(response.data.msg);
       }
       
-      if (
-        response.data.status &&
-        response.data.status.toLowerCase() === 'ok' &&
-        response.data.link &&
-        response.data.link !== ''
-      ) {
+      if (status === 'ok' && response.data.link && response.data.link !== '') {
         return { link: response.data.link, title: response.data.title };
       }
       
       if (status === 'processing') {
-        // Increase polling attempts and allowed queue count for mp3 conversion.
-        return await pollForLink(videoId, options, updateCallback, 40, 5000, 20);
+        return await pollForLink(videoId, options, updateCallback, 40, 5000, 20, cancellationCheck);
       }
       
       throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
@@ -163,13 +162,12 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
       throw error;
     }
   } else if (format === 'mp4') {
-    // Use the new video download API.
     const endpoint = `https://youtube-video-fast-downloader-24-7.p.rapidapi.com/download_video/${videoId}`;
-    const quality = process.env.DEFAULT_VIDEO_QUALITY_ID || 137;
+    const qualityParam = quality || process.env.DEFAULT_VIDEO_QUALITY_ID || 137;
     const options = {
       method: 'GET',
       url: endpoint,
-      params: { quality },
+      params: { quality: qualityParam },
       headers: {
         'x-rapidapi-key': process.env.RAPIDAPI_KEY,
         'x-rapidapi-host': 'youtube-video-fast-downloader-24-7.p.rapidapi.com',
@@ -177,12 +175,19 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
     };
     
     try {
+      // Try an initial request.
       let response = await axios.request(options);
       let fileUrl = response.data.file;
+      
+      // If fileUrl is not available, poll and simulate progress.
       let attempts = 0;
       while ((!fileUrl || fileUrl === "") && attempts < 20) {
-        await sleep(5000);
-        await updateCallback(`ממיר... (ניסיון ${attempts + 1})`);
+        if (cancellationCheck && cancellationCheck()) {
+          throw new Error('הורדה בוטלה על ידי המשתמש');
+        }
+        await sleep(3000); // poll more frequently
+        const simulatedProgress = Math.min(100, Math.round((attempts / 20) * 100));
+        await updateCallback(`ממיר...\n${createProgressBar(simulatedProgress)}\nניסיון ${attempts + 1}`);
         response = await axios.request(options);
         fileUrl = response.data.file;
         attempts++;
@@ -190,7 +195,15 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
       if (!fileUrl || fileUrl === "") {
         throw new Error(`לא נוצר קישור להורדה לאחר ${attempts} ניסיונות.`);
       }
-      // Get video info to obtain the title.
+      // Check cancellation one more time before proceeding.
+      if (cancellationCheck && cancellationCheck()) {
+        throw new Error('הורדה בוטלה על ידי המשתמש');
+      }
+      // Update progress to complete.
+      await updateCallback(`ממיר...\n${createProgressBar(100)}\nסטטוס: הקובץ מוכן`, false);
+      await sleep(1000); // short delay for UI update
+      
+      // Get video info.
       const infoOptions = {
         method: 'GET',
         url: `https://youtube-video-fast-downloader-24-7.p.rapidapi.com/get-video-info/${videoId}`,

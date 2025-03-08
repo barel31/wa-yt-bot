@@ -27,7 +27,7 @@ if (process.env.NODE_ENV === 'development') {
   redisClient.connect().catch(console.error);
 }
 
-// Express and body-parser setup.
+// Express setup.
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(bodyParser.json());
@@ -39,7 +39,7 @@ const s3 = new AWS.S3({
   region: process.env.AWS_REGION,
 });
 
-// Rate Limiting and Active Downloads.
+// Rate limiting and active downloads.
 const rateLimitCache = {};
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 3;
@@ -60,7 +60,7 @@ function isRateLimited(chatId) {
 }
 const activeDownloads = {};
 
-// Helper to trim messages (Telegram max length ~4096 chars).
+// Helper to trim long messages.
 const MAX_MESSAGE_LENGTH = 4096;
 function trimMessage(text) {
   return text.length > MAX_MESSAGE_LENGTH
@@ -133,7 +133,15 @@ bot.on('callback_query', async (callbackQuery) => {
   const messageId = callbackQuery.message.message_id;
   const action = parsed.a;
 
-  // Remove inline keyboard.
+  // Handle cancel-download action.
+  if (action === 'cancel_download') {
+    activeDownloads[chatId] = false;
+    bot.answerCallbackQuery(callbackQuery.id, { text: 'הורדה בוטלה' });
+    bot.sendMessage(chatId, 'הורדה בוטלה על ידי המשתמש.');
+    return;
+  }
+
+  // Remove inline keyboard from previous message.
   try {
     await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId });
   } catch (error) {
@@ -161,7 +169,6 @@ bot.on('callback_query', async (callbackQuery) => {
       });
       console.log("Quality options received:", qualityResponse.data);
       let qualities = qualityResponse.data;
-      // If not an array, convert object to array.
       if (!Array.isArray(qualities)) {
         qualities = Object.values(qualities);
       }
@@ -171,7 +178,7 @@ bot.on('callback_query', async (callbackQuery) => {
         const defaultResolution = process.env.DEFAULT_VIDEO_QUALITY_RESOLUTION || "720p";
         qualities = [{ id: defaultQualityId, quality: defaultResolution, type: 'video' }];
       }
-      // Filter for video options that contain "mp4" in the mime type for MP4 downloads.
+      // Filter for video options with 'mp4' in MIME type.
       const videoQualities = qualities.filter(opt => opt.type === 'video' && opt.mime.includes('mp4'));
       if (videoQualities.length === 0) {
         throw new Error('אין אפשרויות וידאו זמינות עבור פורמט MP4');
@@ -198,28 +205,40 @@ bot.on('callback_query', async (callbackQuery) => {
     return;
   }
   
-  // Handle the download action.
+  // Handle download action.
   if (action === 'download' && parsed.i) {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
-    // Inform user that the request is in progress.
-    bot.sendMessage(chatId, 'הבקשה בעיבוד, אנא המתן...');
+    // Send initial progress message with cancel button.
+    let progressMsg;
+    try {
+      progressMsg = await bot.sendMessage(chatId, 'הבקשה בעיבוד, אנא המתן...\nניתן ללחוץ על "בטל הורדה" כדי לבטל.', {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'בטל הורדה', callback_data: JSON.stringify({ a: 'cancel_download', i: parsed.i }) }]
+          ]
+        }
+      });
+    } catch (error) {
+      console.error('Error sending initial status message:', error);
+    }
     activeDownloads[chatId] = true;
     const format = parsed.f || 'mp3';
     const quality = parsed.q || null;
     const videoUrl = `https://youtu.be/${parsed.i}`;
     
-    let progressMsg;
-    try {
-      progressMsg = await bot.sendMessage(chatId, 'מעבד הורדה...');
-    } catch (error) {
-      console.error('Error sending initial status message:', error);
-    }
+    // Cancellation check.
+    const cancellationCheck = () => !activeDownloads[chatId];
     
-    const updateStatus = async (newStatus) => {
+    // Update status message with cancel button.
+    const updateStatus = async (newStatus, disableCancel = false) => {
       try {
+        const replyMarkup = disableCancel
+          ? {}
+          : { inline_keyboard: [[{ text: 'בטל הורדה', callback_data: JSON.stringify({ a: 'cancel_download', i: parsed.i }) }]] };
         await bot.editMessageText(trimMessage(newStatus), {
           chat_id: chatId,
-          message_id: progressMsg.message_id
+          message_id: progressMsg.message_id,
+          reply_markup: replyMarkup
         });
       } catch (error) {
         if (!error.message.includes('message is not modified')) {
@@ -229,8 +248,10 @@ bot.on('callback_query', async (callbackQuery) => {
     };
     
     try {
-      const result = await processDownload(videoUrl, updateStatus, format, quality);
-      await updateStatus('ההורדה הושלמה. מכין את הקובץ...');
+      // Call processDownload which updates progress during conversion.
+      const result = await processDownload(videoUrl, updateStatus, format, quality, cancellationCheck);
+      // Final update without cancel button.
+      await updateStatus('ההורדה הושלמה. מכין את הקובץ...', true);
       
       const sanitizeFileName = name => name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
       const sanitizedTitle = sanitizeFileName(result.title) || `file_${Date.now()}`;
@@ -258,7 +279,7 @@ bot.on('callback_query', async (callbackQuery) => {
       
       let response = await downloadFile(result.link, localFilePath);
       if (response.status === 404) {
-        await updateStatus('מצטער, לא נמצא הקובץ (404).');
+        await updateStatus('מצטער, לא נמצא הקובץ (404).', true);
         bot.sendMessage(chatId, 'מצטער, לא נמצא הקובץ (404).');
         activeDownloads[chatId] = false;
         return;
@@ -271,7 +292,7 @@ bot.on('callback_query', async (callbackQuery) => {
         writer.on('error', reject);
       });
       
-      await updateStatus('מעלה את הקובץ ל-S3, אנא המתן...');
+      await updateStatus('מעלה את הקובץ ל-S3, אנא המתן...', true);
       const fileStream = fs.createReadStream(localFilePath);
       const s3Params = {
         Bucket: process.env.S3_BUCKET_NAME,
@@ -286,16 +307,21 @@ bot.on('callback_query', async (callbackQuery) => {
         Expires: 3600
       });
       
-      await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...');
+      await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...', true);
+      // For MP4, send the local file.
+      // For MP4, send the local file with explicit contentType.
       if (format === 'mp4') {
-        await bot.sendVideo(chatId, s3Url, {
+        await bot.sendVideo(chatId, localFilePath, {
           caption: `הנה קובץ הווידאו שלך: ${result.title}`,
-          filename: `${sanitizedTitle}${fileExtension}`
+          filename: `${sanitizedTitle}${fileExtension}`,
+          contentType: 'video/mp4'
         });
       } else {
+        // For MP3, send the file via URL with explicit contentType.
         await bot.sendAudio(chatId, s3Url, {
           caption: `הנה קובץ האודיו שלך: ${result.title}`,
-          filename: `${sanitizedTitle}${fileExtension}`
+          filename: `${sanitizedTitle}${fileExtension}`,
+          contentType: 'audio/mpeg'
         });
       }
       
