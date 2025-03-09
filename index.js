@@ -58,7 +58,7 @@ function isRateLimited(chatId) {
     return rateLimitCache[chatId].count > MAX_REQUESTS_PER_WINDOW;
   }
 }
-const activeDownloads = {};
+const activeDownloads = {}; // keyed by chatId
 
 // Helper to trim long messages.
 const MAX_MESSAGE_LENGTH = 4096;
@@ -135,10 +135,16 @@ bot.on('callback_query', async (callbackQuery) => {
 
   // Handle cancel-download action.
   if (action === 'cancel_download') {
+    if (!activeDownloads[chatId]) {
+      return bot.answerCallbackQuery(callbackQuery.id, { text: 'הורדה כבר בוטלה' });
+    }
     activeDownloads[chatId] = false;
-    bot.answerCallbackQuery(callbackQuery.id, { text: 'הורדה בוטלה' });
-    bot.sendMessage(chatId, 'הורדה בוטלה על ידי המשתמש.');
-    return;
+    try {
+      await bot.editMessageText('הורדה בוטלה על ידי המשתמש.', { chat_id: chatId, message_id: messageId });
+    } catch (e) {
+      console.error('שגיאה בעדכון הודעת ביטול:', e.message);
+    }
+    return bot.answerCallbackQuery(callbackQuery.id, { text: 'הורדה בוטלה' });
   }
 
   // Remove inline keyboard from previous message.
@@ -183,7 +189,16 @@ bot.on('callback_query', async (callbackQuery) => {
       if (videoQualities.length === 0) {
         throw new Error('אין אפשרויות וידאו זמינות עבור פורמט MP4');
       }
-      const qualityButtons = videoQualities.map(opt => {
+      // Deduplicate options by quality label.
+      const uniqueQualitiesMap = new Map();
+      videoQualities.forEach(opt => {
+        if (!uniqueQualitiesMap.has(opt.quality)) {
+          uniqueQualitiesMap.set(opt.quality, opt);
+        }
+      });
+      const uniqueQualities = Array.from(uniqueQualitiesMap.values());
+      
+      const qualityButtons = uniqueQualities.map(opt => {
         const callbackData = JSON.stringify({ a: 'download', i: parsed.i, f: 'mp4', q: opt.id });
         return { text: opt.quality, callback_data: callbackData };
       });
@@ -208,7 +223,6 @@ bot.on('callback_query', async (callbackQuery) => {
   // Handle download action.
   if (action === 'download' && parsed.i) {
     bot.answerCallbackQuery(callbackQuery.id, { text: 'מעבד הורדה...' });
-    // Send initial progress message with cancel button.
     let progressMsg;
     try {
       progressMsg = await bot.sendMessage(chatId, 'הבקשה בעיבוד, אנא המתן...\nניתן ללחוץ על "בטל הורדה" כדי לבטל.', {
@@ -229,8 +243,9 @@ bot.on('callback_query', async (callbackQuery) => {
     // Cancellation check.
     const cancellationCheck = () => !activeDownloads[chatId];
     
-    // Update status message with cancel button.
+    // Update status message; if download is canceled, do not update further.
     const updateStatus = async (newStatus, disableCancel = false) => {
+      if (cancellationCheck()) return; // Skip updates if canceled.
       try {
         const replyMarkup = disableCancel
           ? {}
@@ -248,9 +263,7 @@ bot.on('callback_query', async (callbackQuery) => {
     };
     
     try {
-      // Call processDownload which updates progress during conversion.
       const result = await processDownload(videoUrl, updateStatus, format, quality, cancellationCheck);
-      // Final update without cancel button.
       await updateStatus('ההורדה הושלמה. מכין את הקובץ...', true);
       
       const sanitizeFileName = name => name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu, '_');
@@ -308,8 +321,6 @@ bot.on('callback_query', async (callbackQuery) => {
       });
       
       await updateStatus('מעלה את הקובץ ל-Telegram, אנא המתן...', true);
-      // For MP4, send the local file.
-      // For MP4, send the local file with explicit contentType.
       if (format === 'mp4') {
         await bot.sendVideo(chatId, localFilePath, {
           caption: `הנה קובץ הווידאו שלך: ${result.title}`,
@@ -317,7 +328,6 @@ bot.on('callback_query', async (callbackQuery) => {
           contentType: 'video/mp4'
         });
       } else {
-        // For MP3, send the file via URL with explicit contentType.
         await bot.sendAudio(chatId, s3Url, {
           caption: `הנה קובץ האודיו שלך: ${result.title}`,
           filename: `${sanitizedTitle}${fileExtension}`,
@@ -332,10 +342,13 @@ bot.on('callback_query', async (callbackQuery) => {
       });
     } catch (error) {
       console.error('Download processing error:', error.message);
-      try {
-        await bot.sendMessage(chatId, `שגיאה: ${error.message}`);
-      } catch (e) {
-        console.error('Error sending error message:', e.message);
+      // Only send an error message if it's not a cancellation.
+      if (error.message !== 'הורדה בוטלה על ידי המשתמש') {
+        try {
+          await bot.sendMessage(chatId, `שגיאה: ${error.message}`);
+        } catch (e) {
+          console.error('Error sending error message:', e.message);
+        }
       }
     }
     activeDownloads[chatId] = false;
