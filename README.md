@@ -19,7 +19,7 @@ A web application for downloading YouTube videos and audio. Users can enter a Yo
   - Uses RapidAPI endpoints for processing YouTube conversions
 - **Optional Redis Caching:**  
   - Can be enabled in production to cache conversion results (disabled in local development)
-- **Webhooks & REST API:**  
+- **REST API:**  
   - The backend exposes REST endpoints for job submission and status tracking
 
 ---
@@ -40,7 +40,6 @@ Create a `.env` file in the backend root with the following variables:
 
 ```
 PORT=3000
-WEBHOOK_URL=https://your-app-domain.com/webhook
 RAPIDAPI_KEY=your_rapidapi_key
 RAPIDAPI_HOST=youtube-mp36.p.rapidapi.com         # For MP3 downloads
 RAPIDAPI_HOST_MP4=youtube-video-fast-downloader-24-7.p.rapidapi.com   # For MP4 downloads

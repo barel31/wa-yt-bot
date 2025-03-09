@@ -230,6 +230,4 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3', quality
 module.exports = {
   processDownload,
   extractVideoId,
-  createProgressBar,
-  sleep,
 };

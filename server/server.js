@@ -1,16 +1,20 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 const AWS = require('aws-sdk');
 const crypto = require('crypto');
-const { processDownload, extractVideoId, createProgressBar, sleep } = require('./download');
+const { processDownload, extractVideoId } = require('./download');
+const cors = require('cors');
+
 
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(bodyParser.json());
+
+// Allow only your frontend domain in production:
+if (process.env.NODE_ENV === 'development') {
+  app.use(cors());
+} else app.use(cors({ origin: process.env.FRONTEND_URL }));
 
 // AWS S3 Setup.
 const s3 = new AWS.S3({
