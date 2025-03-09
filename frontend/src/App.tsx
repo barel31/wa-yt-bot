@@ -16,6 +16,8 @@ interface JobStatus {
   error: string | null;
 }
 
+const API_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
+
 const App: React.FC = () => {
   const [url, setUrl] = useState<string>('');
   const [format, setFormat] = useState<'mp3' | 'mp4'>('mp3');
@@ -40,14 +42,14 @@ const App: React.FC = () => {
     setProgress(0);
     setStatusText('ממתין להתחלת העיבוד...');
     try {
-      const response = await axios.post<{ jobId: string }>('/api/download', { url, format });
+      const response = await axios.post<{ jobId: string }>(`${API_URL}/api/download`, { url, format });
       const newJobId = response.data.jobId;
       if (!newJobId) {
         setError('לא קיבלנו מזהה משימה');
         return;
       }
       setJobId(newJobId);
-      // Start polling for status only if newJobId is defined.
+      // Start polling for status every 5 seconds.
       const interval = window.setInterval(() => pollStatus(newJobId), 5000);
       setPollInterval(interval);
     } catch (err: unknown) {
@@ -62,7 +64,7 @@ const App: React.FC = () => {
   const pollStatus = async (currentJobId: string) => {
     if (!currentJobId) return; // Defensive check
     try {
-      const { data } = await axios.get<JobStatus>(`/api/status/${currentJobId}`);
+      const { data } = await axios.get<JobStatus>(`${API_URL}/api/status/${currentJobId}`);
       setProgress(data.progress);
       setStatusText(data.statusText);
       if (data.status === 'finished') {
@@ -81,7 +83,7 @@ const App: React.FC = () => {
   const handleCancel = async () => {
     if (!jobId) return;
     try {
-      await axios.post(`/api/cancel/${jobId}`);
+      await axios.post(`${API_URL}/api/cancel/${jobId}`);
       if (pollInterval !== null) clearInterval(pollInterval);
       setStatusText('הורדה בוטלה על ידי המשתמש.');
     } catch (err: unknown) {
