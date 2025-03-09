@@ -41,6 +41,10 @@ const App: React.FC = () => {
     setStatusText('ממתין להתחלת העיבוד...');
     try {
       const { data } = await axios.post<{ jobId: string }>('/api/download', { url, format });
+      if (!data.jobId) {
+        setError('לא קיבלנו מזהה משימה');
+        return;
+      }
       setJobId(data.jobId);
       // Start polling for status every 5 seconds.
       const interval = window.setInterval(() => pollStatus(data.jobId), 5000);
@@ -54,27 +58,23 @@ const App: React.FC = () => {
     }
   };
 
-  const pollStatus = async (jobId: string) => {
+  const pollStatus = async (currentJobId: string) => {
+    // Defensive check: ensure currentJobId is defined.
+    if (!currentJobId) return;
     try {
-      const { data } = await axios.get<JobStatus>(`/api/status/${jobId}`);
+      const { data } = await axios.get<JobStatus>(`/api/status/${currentJobId}`);
       setProgress(data.progress);
       setStatusText(data.statusText);
       if (data.status === 'finished') {
-        if (pollInterval !== null) {
-          clearInterval(pollInterval);
-        }
+        if (pollInterval !== null) clearInterval(pollInterval);
         setResult(data.result);
       } else if (data.status === 'error' || data.status === 'cancelled') {
-        if (pollInterval !== null) {
-          clearInterval(pollInterval);
-        }
+        if (pollInterval !== null) clearInterval(pollInterval);
         setError(data.error || 'Download cancelled');
       }
     } catch (err: unknown) {
       setError(`Error polling job status ${err}`);
-      if (pollInterval !== null) {
-        clearInterval(pollInterval);
-      }
+      if (pollInterval !== null) clearInterval(pollInterval);
     }
   };
 
@@ -82,9 +82,7 @@ const App: React.FC = () => {
     if (!jobId) return;
     try {
       await axios.post(`/api/cancel/${jobId}`);
-      if (pollInterval !== null) {
-        clearInterval(pollInterval);
-      }
+      if (pollInterval !== null) clearInterval(pollInterval);
       setStatusText('הורדה בוטלה על ידי המשתמש.');
     } catch (err: unknown) {
       setError(`Error cancelling download ${err}`);
