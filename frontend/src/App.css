@@ -40,7 +40,6 @@ button {
   overflow: hidden;
   margin: 1rem 0;
 }
-
 .progress {
   width: 0%;
   background: #4caf50;
@@ -48,6 +47,9 @@ button {
   color: white;
   line-height: 24px;
   transition: width 0.3s ease-in-out;
+}
+.progress-percentage {
+  margin: 0;
 }
 
 .error {

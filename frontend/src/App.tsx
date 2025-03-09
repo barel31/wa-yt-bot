@@ -113,7 +113,7 @@ const App: React.FC = () => {
           {/* <p>{statusText}</p> */}
           <div className="progress-bar">
             <div className="progress" style={{ width: `${progress}%` }}>
-              {!!progress && <p>{progress}%</p>}
+              {!!progress && <p className='progress-percentage'>{progress}%</p>}
             </div>
           </div>
           {statusText && statusText !== 'ההורדה הושלמה. מכין את הקובץ...' && (
