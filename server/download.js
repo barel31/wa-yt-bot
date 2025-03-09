@@ -6,20 +6,24 @@ const redis = require('redis');
 let redisClient = null;
 const redisUrl = process.env.REDIS_URL;
 
-if (redisUrl && redisUrl.startsWith('redis://')) {
+if (redisUrl) {
+  console.log('[Redis] Attempting to connect using URL:', redisUrl);
   redisClient = redis.createClient({ url: redisUrl });
   redisClient.on('error', (err) => {
-    console.error('[redis] Error event:', err.message);
+    console.error('[Redis] Error event:', err.message);
     redisClient.quit();
     redisClient = null;
   });
-  // Connect the client.
-  redisClient.connect().catch((err) => {
-    console.error('[redis] Connect error:', err.message);
-    redisClient = null;
-  });
+  redisClient.connect()
+    .then(() => console.log('[Redis] Connected successfully.'))
+    .catch((err) => {
+      console.error('[Redis] Connection error:', err.message);
+      redisClient = null;
+    });
 } else {
-  console.warn('Redis caching disabled: no valid REDIS_URL provided.');
+  console.warn('[Redis] Caching disabled: no valid REDIS_URL provided.');
+  console.log(redisUrl);
+  
 }
 
 /**
@@ -35,14 +39,19 @@ function extractVideoId(url) {
       const parts = urlObj.pathname.split('/');
       const shortsIndex = parts.indexOf('shorts');
       if (shortsIndex !== -1 && parts[shortsIndex + 1]) {
+        console.log('[extractVideoId] Detected Shorts URL, video ID:', parts[shortsIndex + 1]);
         return parts[shortsIndex + 1];
       }
     }
     if (urlObj.hostname === 'youtu.be') {
-      return urlObj.pathname.slice(1);
+      const id = urlObj.pathname.slice(1);
+      console.log('[extractVideoId] Detected youtu.be URL, video ID:', id);
+      return id;
     }
     if (urlObj.hostname.includes('youtube.com')) {
-      return urlObj.searchParams.get('v');
+      const id = urlObj.searchParams.get('v');
+      console.log('[extractVideoId] Detected youtube.com URL, video ID:', id);
+      return id;
     }
     return null;
   } catch (error) {
@@ -57,6 +66,7 @@ function extractVideoId(url) {
  * @returns {Promise<void>}
  */
 function sleep(ms) {
+  console.log(`[sleep] Sleeping for ${ms} ms`);
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
@@ -87,13 +97,15 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
   let lastStatus = '';
   let queueCount = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`[Poll] Attempt ${attempt} for videoId: ${videoId}`);
     await sleep(delayMs);
     try {
       const pollResponse = await axios.request(options);
       const progressValue = pollResponse.data.progress || 0;
       lastStatus = pollResponse.data.msg || '';
       const status = (pollResponse.data.status || "").toLowerCase();
-
+      console.log(`[Poll] Response: status=${status}, progress=${progressValue}, msg=${lastStatus}`);
+      
       if (lastStatus.toLowerCase().includes("in queue")) {
         queueCount++;
       } else {
@@ -108,6 +120,7 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
       }
 
       if (pollResponse.data.link && pollResponse.data.link !== '') {
+        console.log(`[Poll] Successful conversion: ${pollResponse.data.link}`);
         return { link: pollResponse.data.link, title: pollResponse.data.title };
       }
 
@@ -115,7 +128,7 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
         throw new Error("Conversion stuck in queue");
       }
     } catch (pollError) {
-      console.error('Error polling RapidAPI:', pollError.message);
+      console.error('[Poll] Error polling RapidAPI:', pollError.message);
       await updateCallback(`שגיאה בעדכון סטטוס: ${pollError.message}`);
       throw pollError;
     }
@@ -132,6 +145,7 @@ async function pollForLink(videoId, options, updateCallback, maxAttempts = 20, d
  * @returns {Promise<{ link: string, title: string }>}
  */
 async function processDownload(videoUrl, updateCallback, format = 'mp3') {
+  console.log('[processDownload] Received videoUrl:', videoUrl, 'format:', format);
   const videoId = extractVideoId(videoUrl);
   if (!videoId) {
     throw new Error('קישור YouTube לא תקין');
@@ -139,13 +153,22 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
 
   const cacheKey = `download:${videoId}:${format}`;
   if (redisClient) {
-    const cached = await redisClient.get(cacheKey);
-    if (cached) {
-      console.log('Cache hit for key:', cacheKey);
-      return JSON.parse(cached);
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        console.log('[processDownload] Cache hit for key:', cacheKey);
+        return JSON.parse(cached);
+      } else {
+        console.log('[processDownload] No cache for key:', cacheKey);
+      }
+    } catch (err) {
+      console.error('[processDownload] Redis get error:', err.message);
     }
+  } else {
+    console.log('[processDownload] Redis client not available, skipping cache.');
   }
 
+  // Choose endpoint and host based on format.
   const endpoint =
     format === 'mp4'
       ? 'https://youtube-video-fast-downloader-24-7.p.rapidapi.com/dl'
@@ -165,9 +188,12 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
     },
   };
 
+  console.log('[processDownload] Making RapidAPI request with options:', options);
+
   try {
     const response = await axios.request(options);
     const status = (response.data.status || "").toLowerCase();
+    console.log('[processDownload] RapidAPI response:', response.data);
 
     if (status === 'fail') {
       await updateCallback(`ממיר...\n${createProgressBar(response.data.progress || 0)}\nסטטוס: ${response.data.msg}`);
@@ -176,19 +202,26 @@ async function processDownload(videoUrl, updateCallback, format = 'mp3') {
 
     if (status === 'ok' && response.data.link && response.data.link !== "") {
       const result = { link: response.data.link, title: response.data.title };
+      console.log('[processDownload] Successful conversion result:', result);
       if (redisClient) {
-        await redisClient.set(cacheKey, JSON.stringify(result), { EX: 3600 }); // Cache for 1 hour
+        try {
+          await redisClient.set(cacheKey, JSON.stringify(result), { EX: 3600 });
+          console.log('[processDownload] Cached result under key:', cacheKey);
+        } catch (err) {
+          console.error('[processDownload] Redis set error:', err.message);
+        }
       }
       return result;
     }
 
     if (status === 'processing') {
+      console.log('[processDownload] Conversion is processing, starting polling.');
       return await pollForLink(videoId, options, updateCallback);
     }
 
     throw new Error(`תגובה לא צפויה מ-RapidAPI: ${JSON.stringify(response.data)}`);
   } catch (error) {
-    console.error('RapidAPI error:', error.message);
+    console.error('[processDownload] RapidAPI error:', error.message);
     if (updateCallback) {
       await updateCallback(`שגיאה: ${error.message}`);
     }
