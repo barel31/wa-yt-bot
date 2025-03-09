@@ -40,14 +40,15 @@ const App: React.FC = () => {
     setProgress(0);
     setStatusText('ממתין להתחלת העיבוד...');
     try {
-      const { data } = await axios.post<{ jobId: string }>('/api/download', { url, format });
-      if (!data.jobId) {
+      const response = await axios.post<{ jobId: string }>('/api/download', { url, format });
+      const newJobId = response.data.jobId;
+      if (!newJobId) {
         setError('לא קיבלנו מזהה משימה');
         return;
       }
-      setJobId(data.jobId);
-      // Start polling for status every 5 seconds.
-      const interval = window.setInterval(() => pollStatus(data.jobId), 5000);
+      setJobId(newJobId);
+      // Start polling for status only if newJobId is defined.
+      const interval = window.setInterval(() => pollStatus(newJobId), 5000);
       setPollInterval(interval);
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -59,8 +60,7 @@ const App: React.FC = () => {
   };
 
   const pollStatus = async (currentJobId: string) => {
-    // Defensive check: ensure currentJobId is defined.
-    if (!currentJobId) return;
+    if (!currentJobId) return; // Defensive check
     try {
       const { data } = await axios.get<JobStatus>(`/api/status/${currentJobId}`);
       setProgress(data.progress);
