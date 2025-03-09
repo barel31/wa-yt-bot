@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "npm install",
-    "start": "node index.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "aws-sdk": "^2.1692.0",
